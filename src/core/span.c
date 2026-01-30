@@ -2,10 +2,12 @@
  * span.c - Span lifecycle and annotation implementation
  */
 
+#define _POSIX_C_SOURCE 200809L
 #include "dapper/span.h"
 #include "dapper/trace.h"
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <stdatomic.h>
 
 /* External clock function */
@@ -57,8 +59,13 @@ span_t *span_create(trace_t *trace, span_t *parent, const char *name)
     /* Copy name */
     safe_strncpy(span->name, name, SPAN_NAME_MAX_LENGTH);
 
-    /* Capture start timestamp */
+    /* Capture start timestamps (both monotonic and wall-clock) */
     span->monotonic_start_ns = clock_monotonic_ns();
+    /* Wall-clock time for cross-system correlation */
+    struct timespec wall;
+    clock_gettime(CLOCK_REALTIME, &wall);
+    span->wall_start_us = (uint64_t)wall.tv_sec * 1000000ULL +
+                          (uint64_t)wall.tv_nsec / 1000ULL;
     span->monotonic_end_ns = 0; /* Not finished yet */
 
     /* Initialize annotation count */

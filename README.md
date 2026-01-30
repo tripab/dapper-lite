@@ -23,26 +23,33 @@ Dapper-Lite is a minimal yet serious distributed tracing system that implements 
 
 ---
 
-## Implementation Phase 1
+## Implementation Phases
 
 Phase 1 establishes the foundational data model for distributed tracing:
 - Traces and spans with unique IDs
 - Parent-child hierarchy
 - Monotonic timestamp measurement
 - Bounded annotation storage
+Phase 2 implements context propagation
+- Thread-local current span management
+- Cross-process context propagation (16-byte wire format)
+- Wall-clock timestamps for cross-system correlation
+- Endian-safe serialization
 
 **What's implemented until now**:
 - ✅ Trace creation and lifecycle
 - ✅ Span creation, annotation, and finishing
 - ✅ In-process parent-child relationships
 - ✅ Monotonic time for accurate duration measurement
+- ✅ Wall-clock timestamps for cross-system correlation
+- ✅ Thread-local current span management
+- ✅ Context propagation across process boundaries
 - ✅ Memory-safe cleanup (trace owns all spans)
 
 **What's deferred**:
-- ❌ Thread-local current span
 - ❌ Sampling metadata
 - ❌ Asynchronous export
-- ❌ Wall-clock timestamps
+- ❌ Collector service
 - ❌ Performance benchmarks
 
 ## Quick Start
@@ -78,17 +85,22 @@ dapper-lite/
 ├── include/dapper/
 │   ├── types.h          # Core data structures
 │   ├── trace.h          # Trace lifecycle API
-│   └── span.h           # Span lifecycle and annotation API
+│   ├── span.h           # Span lifecycle and annotation API
+│   └── context.h        # Context propagation
 ├── src/core/
 │   ├── trace.c          # Trace implementation
 │   ├── span.c           # Span implementation
-│   └── clock.c          # Monotonic clock wrapper
+│   ├── clock.c          # Monotonic clock wrapper
+│   ├── thread_local.c   # Thread-local storage
+│   └── context.c        # Serialization
 ├── examples/
 │   ├── 01-single-span/  # Simplest possible trace
-│   └── 02-parent-child/ # Demonstrates hierarchy
+│   ├── 02-parent-child/ # Demonstrates hierarchy
+│   └── 03-cross-process/ # Cross-process propagation
 ├── tests/unit/
 │   ├── minunit.h        # Minimal test framework
-│   └── test_phase1.c    # Comprehensive unit tests
+│   ├── test_phase1.c    # Phase 1 tests (14 tests)
+│   └── test_phase2.c    # Phase 2 tests (9 tests)
 └── Makefile
 ```
 
@@ -121,6 +133,36 @@ void span_finish(span_t* span);
 
 // Get span duration in nanoseconds
 uint64_t span_duration_ns(const span_t* span);
+```
+
+### Thread-Local Context
+
+```c
+void span_set_current(span_t* span);
+span_t* span_get_current(void);
+```
+
+### Context Propagation
+
+```c
+// Wire format size
+#define TRACE_CONTEXT_WIRE_SIZE 16
+
+// Context structure
+typedef struct {
+    trace_id_t trace_id;
+    span_id_t span_id;
+} trace_context_t;
+
+// Serialize
+int context_inject(const span_t* span, uint8_t* buffer, size_t bufsize);
+
+// Deserialize
+int context_extract(trace_context_t* ctx, const uint8_t* buffer, size_t bufsize);
+
+// Create span from remote context
+span_t* span_create_from_context(trace_t* trace, const trace_context_t* ctx, 
+                                   const char* name);
 ```
 
 ## Examples
@@ -164,50 +206,92 @@ span_finish(parent);
 trace_destroy(trace);
 ```
 
-## Design Decisions
+### Example 3: Cross-Process Flow
 
-### 1. Monotonic Time Only (Phase 1)
+- **frontend.c** - Initiates request, serializes context, sends via TCP
+- **backend.c** - Receives context, deserializes, continues trace
+- **run.sh** - Orchestrates cross-process demo
 
-Phase 1 uses only monotonic timestamps (`CLOCK_MONOTONIC`):
-- **Why**: Immune to NTP adjustments, leap seconds, manual clock changes
-- **When**: Span duration calculation
-- **Later**: Wall-clock time added in Phase 2 for cross-system correlation
-
-### 2. Explicit Memory Ownership
-
-**Rule**: Trace owns all its spans.
-
-```c
-trace_destroy(trace);  // Frees all spans recursively
+**Frontend Process**
+```
+1. Create trace & span
+2. Serialize context (inject)
+   ┌──────────────────────┐
+   │ Trace ID: 0x0001     │
+   │ Span ID:  0x0001     │
+   └──────────────────────┘
+3. Send via TCP to backend
+4. Continue processing
+5. Finish span
 ```
 
-**Benefits**:
-- Clear mental model
-- No use-after-free bugs
-- No reference counting complexity
+**Backend Process**
+```
+1. Receive context bytes
+2. Deserialize (extract)
+   ┌──────────────────────┐
+   │ Trace ID: 0x0001     │
+   │ Parent:   0x0001     │
+   └──────────────────────┘
+3. Create span from context
+   ┌──────────────────────────┐
+   │ NEW Span ID: 0x0002      │
+   │ Trace ID: 0x0001 (same!) │
+   │ Parent: 0x0001 (remote)  │
+   └──────────────────────────┘
+4. Process request
+5. Finish span
+```
 
-### 3. Bounded Annotations
+**Result**: Single trace spans two processes.
 
-Annotations are stored in a fixed-size array (`MAX_ANNOTATIONS = 16`).
-- Overflow is **silently ignored** (production behavior)
-- No dynamic allocation in hot path
-- Predictable memory usage
+---
 
-### 4. Thread Safety
+## Integration Example
 
-Phase 1 provides basic thread safety:
-- ✅ Trace ID generation is atomic
-- ✅ Span ID generation is atomic
-- ❌ Individual spans are NOT thread-safe (caller must synchronize)
+### HTTP-like Service
+
+```c
+// Middleware: Extract context from headers
+void handle_request(http_request_t* req) {
+    trace_t* trace = trace_create();
+    span_t* span;
+    
+    // Check for trace context in headers
+    uint8_t* ctx_header = http_get_header(req, "X-Trace-Context");
+    if (ctx_header) {
+        trace_context_t ctx;
+        context_extract(&ctx, ctx_header, TRACE_CONTEXT_WIRE_SIZE);
+        span = span_create_from_context(trace, &ctx, "http_handler");
+    } else {
+        // New trace
+        span = span_create(trace, NULL, "http_handler");
+    }
+    
+    span_set_current(span);  // Set as current for this thread
+    
+    // Call business logic (can use span_get_current() to detect parent)
+    process_business_logic(req);
+    
+    span_finish(span);
+    trace_destroy(trace);
+}
+```
+
+---
 
 ## Test Coverage
 
-### Unit Tests (17 total)
+### Unit Tests (23 total)
 
-**Trace Tests** 3
-**Span Tests** 4
-**Hierarchy Tests** 3
-**Annotation Tests** 4
+- Trace Tests
+- Span Tests
+- Hierarchy Tests
+- Annotation Tests
+- Thread-Local Tests
+- Context Serialization Tests
+- Cross-Process Span Tests
+- Wall-Clock Timestamp Tests
 
 ## Upcoming implementation phases will address,
 

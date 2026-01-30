@@ -1,4 +1,4 @@
-# Makefile for Dapper-Lite
+# Makefile for Dapper-Lite Phase 1
 # Builds core library, examples, and tests
 
 CC = gcc
@@ -7,12 +7,12 @@ INCLUDES = -Iinclude
 LIBS = -lpthread
 
 # Source files
-CORE_SRCS = src/core/trace.c src/core/span.c src/core/clock.c
+CORE_SRCS = src/core/trace.c src/core/span.c src/core/clock.c src/core/thread_local.c src/core/context.c
 CORE_OBJS = $(CORE_SRCS:.c=.o)
 
 # Targets
-EXAMPLES = examples/01-single-span/main examples/02-parent-child/main
-TESTS = tests/unit/test_phase1
+EXAMPLES = examples/01-single-span/main examples/02-parent-child/main examples/03-cross-process/frontend examples/03-cross-process/backend
+TESTS = tests/unit/test_phase1 tests/unit/test_phase2
 
 .PHONY: all clean examples tests run-examples run-tests
 
@@ -29,8 +29,18 @@ examples/01-single-span/main: examples/01-single-span/main.o $(CORE_OBJS)
 examples/02-parent-child/main: examples/02-parent-child/main.o $(CORE_OBJS)
 	$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
+# Phase 2 examples
+examples/03-cross-process/frontend: examples/03-cross-process/frontend.o $(CORE_OBJS)
+	$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
+
+examples/03-cross-process/backend: examples/03-cross-process/backend.o $(CORE_OBJS)
+	$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
+
 # Tests
 tests/unit/test_phase1: tests/unit/test_phase1.o $(CORE_OBJS)
+	$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
+
+tests/unit/test_phase2: tests/unit/test_phase2.o $(CORE_OBJS)
 	$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
 # Convenience targets
@@ -44,14 +54,24 @@ run-examples: examples
 	@echo ""
 	@echo "=== Running Example 2 ==="
 	@./examples/02-parent-child/main
+	@echo ""
+	@echo "=== Running Example 3 (Cross-Process) ==="
+	@./examples/03-cross-process/run.sh
 
 run-tests: tests
+	@echo "=== Phase 1 Tests ==="
 	@./tests/unit/test_phase1
+	@echo ""
+	@echo "=== Phase 2 Tests ==="
+	@./tests/unit/test_phase2
 
 # Valgrind memory check
 valgrind: tests examples
-	@echo "=== Valgrind: Test Suite ==="
+	@echo "=== Valgrind: Phase 1 Tests ==="
 	@valgrind --leak-check=full --error-exitcode=1 ./tests/unit/test_phase1
+	@echo ""
+	@echo "=== Valgrind: Phase 2 Tests ==="
+	@valgrind --leak-check=full --error-exitcode=1 ./tests/unit/test_phase2
 	@echo ""
 	@echo "=== Valgrind: Example 1 ==="
 	@valgrind --leak-check=full --error-exitcode=1 ./examples/01-single-span/main
@@ -63,7 +83,8 @@ clean:
 	rm -f $(CORE_OBJS)
 	rm -f examples/01-single-span/*.o examples/01-single-span/main
 	rm -f examples/02-parent-child/*.o examples/02-parent-child/main
-	rm -f tests/unit/*.o tests/unit/test_phase1
+	rm -f examples/03-cross-process/*.o examples/03-cross-process/frontend examples/03-cross-process/backend
+	rm -f tests/unit/*.o tests/unit/test_phase1 tests/unit/test_phase2
 
 # Dependencies (simplified - real project would use automatic dependency generation)
 src/core/trace.o: src/core/trace.c include/dapper/trace.h include/dapper/types.h include/dapper/span.h

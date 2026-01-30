@@ -57,4 +57,23 @@ void span_finish(span_t *span);
  */
 uint64_t span_duration_ns(const span_t *span);
 
+/**
+ * Set the current span for this thread
+ *
+ * This allows child spans to automatically detect their parent
+ * without explicitly passing the parent pointer.
+ *
+ * span: The span to set as current (or NULL to clear)
+ *
+ * Note: Thread-local storage is isolated per thread
+ */
+void span_set_current(span_t *span);
+
+/**
+ * Get the current span for this thread
+ *
+ * Returns: Current span, or NULL if none set
+ */
+span_t *span_get_current(void);
+
 #endif /* SPAN_H */

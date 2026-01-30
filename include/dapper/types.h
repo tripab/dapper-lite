@@ -36,6 +36,9 @@ typedef struct
  * - In-process parent-child relationships
  * - No sampling metadata (deferred to an upcoming phase)
  * - No export-related fields (deferred to an upcoming phase)
+ *
+ * Phase 2 additions:
+ * - Wall-clock timestamp for cross-system correlation
  */
 typedef struct span
 {
@@ -47,6 +50,9 @@ typedef struct span
     /* Phase 1: Monotonic time for accurate duration measurement */
     uint64_t monotonic_start_ns;
     uint64_t monotonic_end_ns;
+
+    /* Phase 2: Wall-clock time for cross-system correlation */
+    uint64_t wall_start_us; /* Microseconds since epoch */
 
     /* Annotations (bounded array) */
     annotation_t annotations[MAX_ANNOTATIONS];

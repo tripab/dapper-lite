@@ -17,10 +17,9 @@
  * This is the minimal information needed to continue a trace
  * across process boundaries (e.g., in RPC headers).
  */
-typedef struct
-{
-    trace_id_t trace_id;
-    span_id_t span_id; /* Parent span ID for the receiving side */
+typedef struct {
+  trace_id_t trace_id;
+  span_id_t span_id; /* Parent span ID for the receiving side */
 } trace_context_t;
 
 /**
@@ -53,7 +52,8 @@ int context_inject(const span_t *span, uint8_t *buffer, size_t bufsize);
  *
  * Returns: 0 on success, -1 on error
  */
-int context_extract(trace_context_t *ctx, const uint8_t *buffer, size_t bufsize);
+int context_extract(trace_context_t *ctx, const uint8_t *buffer,
+                    size_t bufsize);
 
 /**
  * Create a span from extracted context

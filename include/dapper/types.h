@@ -6,8 +6,8 @@
 #ifndef TYPES_H
 #define TYPES_H
 
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 /* Configuration constants */
 #define SPAN_NAME_MAX_LENGTH 128
@@ -22,10 +22,9 @@ typedef uint64_t span_id_t;
 /**
  * Annotation - Key-value metadata attached to spans
  */
-typedef struct
-{
-    char key[ANNOTATION_KEY_MAX_LENGTH];
-    char value[ANNOTATION_VALUE_MAX_LENGTH];
+typedef struct {
+  char key[ANNOTATION_KEY_MAX_LENGTH];
+  char value[ANNOTATION_VALUE_MAX_LENGTH];
 } annotation_t;
 
 /**
@@ -40,28 +39,27 @@ typedef struct
  * Phase 2 additions:
  * - Wall-clock timestamp for cross-system correlation
  */
-typedef struct span
-{
-    trace_id_t trace_id;
-    span_id_t span_id;
-    span_id_t parent_span_id; /* 0 if root span */
-    char name[SPAN_NAME_MAX_LENGTH];
+typedef struct span {
+  trace_id_t trace_id;
+  span_id_t span_id;
+  span_id_t parent_span_id; /* 0 if root span */
+  char name[SPAN_NAME_MAX_LENGTH];
 
-    /* Phase 1: Monotonic time for accurate duration measurement */
-    uint64_t monotonic_start_ns;
-    uint64_t monotonic_end_ns;
+  /* Phase 1: Monotonic time for accurate duration measurement */
+  uint64_t monotonic_start_ns;
+  uint64_t monotonic_end_ns;
 
-    /* Phase 2: Wall-clock time for cross-system correlation */
-    uint64_t wall_start_us; /* Microseconds since epoch */
+  /* Phase 2: Wall-clock time for cross-system correlation */
+  uint64_t wall_start_us; /* Microseconds since epoch */
 
-    /* Annotations (bounded array) */
-    annotation_t annotations[MAX_ANNOTATIONS];
-    int annotation_count;
+  /* Annotations (bounded array) */
+  annotation_t annotations[MAX_ANNOTATIONS];
+  int annotation_count;
 
-    /* In-process hierarchy */
-    struct span *parent;       /* Parent span (NULL if root) */
-    struct span *first_child;  /* First child in linked list */
-    struct span *next_sibling; /* Next sibling in parent's child list */
+  /* In-process hierarchy */
+  struct span *parent;       /* Parent span (NULL if root) */
+  struct span *first_child;  /* First child in linked list */
+  struct span *next_sibling; /* Next sibling in parent's child list */
 } span_t;
 
 /**
@@ -71,10 +69,9 @@ typedef struct span
  * - Simple container with unique ID
  * - Sampling metadata deferred to an upcoming phase
  */
-typedef struct
-{
-    trace_id_t id;
-    span_t *root_span;
+typedef struct {
+  trace_id_t id;
+  span_t *root_span;
 } trace_t;
 
 #endif /* TYPES_H */

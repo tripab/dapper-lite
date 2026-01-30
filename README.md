@@ -3,8 +3,6 @@
 
 **Reference Paper**: Sigelman et al., "Dapper: Distributed Tracing Infrastructure" (Google, 2010)
 
-**Project Scope**: Between toy and production-grade; demonstrating what a senior staff engineer would ship as a first launch
-
 **Language**: C (minimal dependencies, maximum control)
 
 ---
@@ -30,6 +28,7 @@ Phase 1 establishes the foundational data model for distributed tracing:
 - Parent-child hierarchy
 - Monotonic timestamp measurement
 - Bounded annotation storage
+
 Phase 2 implements context propagation
 - Thread-local current span management
 - Cross-process context propagation (16-byte wire format)

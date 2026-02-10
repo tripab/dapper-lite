@@ -27,16 +27,16 @@ extern int tests_failed;
         }                                                                           \
     } while (0)
 
-#define mu_assert_eq(message, expected, actual)                                       \
-    do                                                                                \
-    {                                                                                 \
-        if ((expected) != (actual))                                                   \
-        {                                                                             \
-            fprintf(stderr, "FAIL: %s\n  Expected: %ld\n  Actual: %ld\n  at %s:%d\n", \
-                    message, (long)(expected), (long)(actual), __FILE__, __LINE__);   \
-            tests_failed++;                                                           \
-            return message;                                                           \
-        }                                                                             \
+#define mu_assert_eq(message, expected, actual)                                                       \
+    do                                                                                                \
+    {                                                                                                 \
+        if ((expected) != (actual))                                                                   \
+        {                                                                                             \
+            fprintf(stderr, "FAIL: %s\n  Expected: %lu\n  Actual: %lu\n  at %s:%d\n",                 \
+                    message, (unsigned long)(expected), (unsigned long)(actual), __FILE__, __LINE__); \
+            tests_failed++;                                                                           \
+            return message;                                                                           \
+        }                                                                                             \
     } while (0)
 
 #define mu_assert_str_eq(message, expected, actual)                                         \

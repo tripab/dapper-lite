@@ -7,6 +7,9 @@
 
 #include "types.h"
 
+/* Forward declarations */
+struct sampler;
+
 /**
  * Create a new trace with a unique ID
  *
@@ -21,6 +24,19 @@ trace_t *trace_create(void);
  * Returns: Pointer to newly allocated trace, or NULL on failure
  */
 trace_t *trace_create_with_id(trace_id_t trace_id);
+
+/**
+ * Create a trace with sampling decision (Phase 3)
+ *
+ * sampler: Sampler to use for decision
+ * endpoint: Endpoint name (or NULL)
+ *
+ * Returns: Pointer to newly allocated trace, or NULL on failure
+ *
+ * The trace will have sampled, sample_rate, and sampling_reason set
+ * based on the sampler's decision.
+ */
+trace_t *trace_create_sampled(struct sampler *sampler, const char *endpoint);
 
 /**
  * Destroy a trace and all its spans

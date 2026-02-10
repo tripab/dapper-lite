@@ -1,6 +1,9 @@
 /**
  * types.h - Core data structures for Dapper-Lite
  * Phase 1: Semantic correctness only (minimal design)
+ *
+ * Phase 3 additions:
+ * - Sampling decision and metadata
  */
 
 #ifndef TYPES_H
@@ -72,6 +75,11 @@ typedef struct span {
 typedef struct {
   trace_id_t id;
   span_t *root_span;
+
+  /* Phase 3: Sampling metadata */
+  bool sampled;             /* Was this trace sampled? */
+  double sample_rate;       /* Rate used (0.0 - 1.0) */
+  char sampling_reason[64]; /* Why sampled/dropped */
 } trace_t;
 
 #endif /* TYPES_H */

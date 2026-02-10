@@ -4,7 +4,7 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -Werror -std=c11 -O2 -g
 INCLUDES = -Iinclude
-LIBS = -lpthread
+LIBS = -lpthread -lm
 
 # Build directory structure
 BUILD_DIR = build
@@ -13,7 +13,7 @@ BIN_DIR = $(BUILD_DIR)/bin
 TEST_DIR = $(BUILD_DIR)/test
 
 # Source files
-CORE_SRCS = src/core/trace.c src/core/span.c src/core/clock.c src/core/thread_local.c src/core/context.c
+CORE_SRCS = src/core/trace.c src/core/span.c src/core/clock.c src/core/thread_local.c src/core/context.c src/sampling/sampler.c
 CORE_OBJS = $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(CORE_SRCS))
 
 # Example sources
@@ -21,30 +21,47 @@ EXAMPLE1_SRC = examples/01-single-span/main.c
 EXAMPLE2_SRC = examples/02-parent-child/main.c
 EXAMPLE3_FRONTEND_SRC = examples/03-cross-process/frontend.c
 EXAMPLE3_BACKEND_SRC = examples/03-cross-process/backend.c
+EXAMPLE4_SRC = examples/04-sampling/main.c
 
 EXAMPLE1_OBJ = $(OBJ_DIR)/examples/01-single-span/main.o
 EXAMPLE2_OBJ = $(OBJ_DIR)/examples/02-parent-child/main.o
 EXAMPLE3_FRONTEND_OBJ = $(OBJ_DIR)/examples/03-cross-process/frontend.o
 EXAMPLE3_BACKEND_OBJ = $(OBJ_DIR)/examples/03-cross-process/backend.o
+EXAMPLE4_OBJ = $(OBJ_DIR)/examples/04-sampling/main.o
 
 # Test sources
 TEST1_SRC = tests/unit/test_phase1.c
 TEST2_SRC = tests/unit/test_phase2.c
+TEST3_SRC = tests/unit/test_phase3.c
 
 TEST1_OBJ = $(OBJ_DIR)/tests/unit/test_phase1.o
 TEST2_OBJ = $(OBJ_DIR)/tests/unit/test_phase2.o
+TEST3_OBJ = $(OBJ_DIR)/tests/unit/test_phase3.o
+
+# Benchmark sources
+BENCH_SAMPLING_DECISION_SRC = benchmarks/sampling_decision.c
+BENCH_TRACE_CREATION_SRC = benchmarks/trace_creation.c
+
+BENCH_SAMPLING_DECISION_OBJ = $(OBJ_DIR)/benchmarks/sampling_decision.o
+BENCH_TRACE_CREATION_OBJ = $(OBJ_DIR)/benchmarks/trace_creation.o
 
 # Binaries
 EXAMPLE1_BIN = $(BIN_DIR)/example1-single-span
 EXAMPLE2_BIN = $(BIN_DIR)/example2-parent-child
 EXAMPLE3_FRONTEND_BIN = $(BIN_DIR)/example3-frontend
 EXAMPLE3_BACKEND_BIN = $(BIN_DIR)/example3-backend
+EXAMPLE4_BIN = $(BIN_DIR)/example4-sampling
 
 TEST1_BIN = $(TEST_DIR)/test_phase1
 TEST2_BIN = $(TEST_DIR)/test_phase2
+TEST3_BIN = $(TEST_DIR)/test_phase3
 
-EXAMPLES = $(EXAMPLE1_BIN) $(EXAMPLE2_BIN) $(EXAMPLE3_FRONTEND_BIN) $(EXAMPLE3_BACKEND_BIN)
-TESTS = $(TEST1_BIN) $(TEST2_BIN)
+BENCH_SAMPLING_DECISION_BIN = $(BIN_DIR)/bench_sampling_decision
+BENCH_TRACE_CREATION_BIN = $(BIN_DIR)/bench_trace_creation
+
+EXAMPLES = $(EXAMPLE1_BIN) $(EXAMPLE2_BIN) $(EXAMPLE3_FRONTEND_BIN) $(EXAMPLE3_BACKEND_BIN) $(EXAMPLE4_BIN)
+TESTS = $(TEST1_BIN) $(TEST2_BIN) $(TEST3_BIN)
+BENCHMARKS = $(BENCH_SAMPLING_DECISION_BIN) $(BENCH_TRACE_CREATION_BIN)
 
 # Source files for formatting
 FORMAT_SRCS = $(shell find src include examples tests -name '*.c' -o -name '*.h' 2>/dev/null | grep -v minunit.h)
@@ -59,10 +76,13 @@ all: format dirs examples tests
 # Create build directories
 dirs:
 	@mkdir -p $(OBJ_DIR)/core
+	@mkdir -p $(OBJ_DIR)/sampling
 	@mkdir -p $(OBJ_DIR)/examples/01-single-span
 	@mkdir -p $(OBJ_DIR)/examples/02-parent-child
 	@mkdir -p $(OBJ_DIR)/examples/03-cross-process
+	@mkdir -p $(OBJ_DIR)/examples/04-sampling
 	@mkdir -p $(OBJ_DIR)/tests/unit
+	@mkdir -p $(OBJ_DIR)/benchmarks
 	@mkdir -p $(BIN_DIR)
 	@mkdir -p $(TEST_DIR)
 
@@ -76,6 +96,10 @@ $(OBJ_DIR)/examples/%.o: examples/%.c | dirs
 	@$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
 $(OBJ_DIR)/tests/%.o: tests/%.c | dirs
+	@echo "Compiling $<"
+	@$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(OBJ_DIR)/benchmarks/%.o: benchmarks/%.c | dirs
 	@echo "Compiling $<"
 	@$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
@@ -96,6 +120,10 @@ $(EXAMPLE3_BACKEND_BIN): $(EXAMPLE3_BACKEND_OBJ) $(CORE_OBJS)
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
+$(EXAMPLE4_BIN): $(EXAMPLE4_OBJ) $(CORE_OBJS)
+	@echo "Linking $@"
+	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
+
 # Link tests
 $(TEST1_BIN): $(TEST1_OBJ) $(CORE_OBJS)
 	@echo "Linking $@"
@@ -105,10 +133,25 @@ $(TEST2_BIN): $(TEST2_OBJ) $(CORE_OBJS)
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
+$(TEST3_BIN): $(TEST3_OBJ) $(CORE_OBJS)
+	@echo "Linking $@"
+	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS) -lm
+
+# Link benchmarks
+$(BENCH_SAMPLING_DECISION_BIN): $(BENCH_SAMPLING_DECISION_OBJ) $(CORE_OBJS)
+	@echo "Linking $@"
+	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS) -lm
+
+$(BENCH_TRACE_CREATION_BIN): $(BENCH_TRACE_CREATION_OBJ) $(CORE_OBJS)
+	@echo "Linking $@"
+	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS) -lm
+
 # Convenience targets
 examples: $(EXAMPLES)
 
 tests: $(TESTS)
+
+benchmarks: $(BENCHMARKS)
 
 run-examples: examples
 	@echo "=== Running Example 1: Single Span ==="
@@ -125,6 +168,9 @@ run-examples: examples
 	@sleep 1
 	@kill `cat $(BUILD_DIR)/backend.pid 2>/dev/null` 2>/dev/null || true
 	@rm -f $(BUILD_DIR)/backend.pid
+	@echo ""
+	@echo "=== Running Example 4: Sampling ==="
+	@$(EXAMPLE4_BIN)
 
 run-tests: tests
 	@echo "=== Phase 1 Tests ==="
@@ -132,6 +178,17 @@ run-tests: tests
 	@echo ""
 	@echo "=== Phase 2 Tests ==="
 	@$(TEST2_BIN)
+	@echo ""
+	@echo "=== Phase 3 Tests ==="
+	@$(TEST3_BIN)
+
+# Run benchmarks
+run-benchmarks: benchmarks
+	@echo "=== Sampling Decision Benchmark ==="
+	@$(BENCH_SAMPLING_DECISION_BIN)
+	@echo ""
+	@echo "=== Trace Creation Benchmark ==="
+	@$(BENCH_TRACE_CREATION_BIN)
 
 # Code formatting
 format:
@@ -176,21 +233,23 @@ help:
 	@echo "Dapper-Lite Build System"
 	@echo ""
 	@echo "Targets:"
-	@echo "  all           - Build everything (format, examples, tests)"
-	@echo "  examples      - Build all examples"
-	@echo "  tests         - Build all tests"
-	@echo "  run-examples  - Run all examples"
-	@echo "  run-tests     - Run all unit tests"
-	@echo "  format        - Format all source files with clang-format"
-	@echo "  format-check  - Check if files are properly formatted"
-	@echo "  valgrind      - Run valgrind memory checks"
-	@echo "  clean         - Remove build directory"
-	@echo "  help          - Show this help message"
+	@echo "  all             - Build everything (format, examples, tests)"
+	@echo "  examples        - Build all examples"
+	@echo "  tests           - Build all tests"
+	@echo "  benchmarks      - Build all benchmarks"
+	@echo "  run-examples    - Run all examples"
+	@echo "  run-tests       - Run all unit tests"
+	@echo "  run-benchmarks  - Run all benchmarks"
+	@echo "  format          - Format all source files with clang-format"
+	@echo "  format-check    - Check if files are properly formatted"
+	@echo "  valgrind        - Run valgrind memory checks"
+	@echo "  clean           - Remove build directory"
+	@echo "  help            - Show this help message"
 	@echo ""
 	@echo "Build directory structure:"
-	@echo "  build/obj/    - Object files"
-	@echo "  build/bin/    - Example binaries"
-	@echo "  build/test/   - Test binaries"
+	@echo "  build/obj/      - Object files"
+	@echo "  build/bin/      - Example binaries and benchmarks"
+	@echo "  build/test/     - Test binaries"
 
 # Dependencies (automatic header dependency tracking would be better in production)
 $(OBJ_DIR)/core/trace.o: src/core/trace.c include/dapper/trace.h include/dapper/types.h include/dapper/span.h

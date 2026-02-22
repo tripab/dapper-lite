@@ -13,7 +13,7 @@ BIN_DIR = $(BUILD_DIR)/bin
 TEST_DIR = $(BUILD_DIR)/test
 
 # Source files
-CORE_SRCS = src/core/trace.c src/core/span.c src/core/clock.c src/core/thread_local.c src/core/context.c src/sampling/sampler.c
+CORE_SRCS = src/core/trace.c src/core/span.c src/core/clock.c src/core/thread_local.c src/core/context.c src/sampling/sampler.c src/export/serialize.c src/export/ring_buffer.c src/export/file_sink.c src/export/udp_sink.c src/export/exporter_thread.c
 CORE_OBJS = $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(CORE_SRCS))
 
 # Example sources
@@ -33,17 +33,23 @@ EXAMPLE4_OBJ = $(OBJ_DIR)/examples/04-sampling/main.o
 TEST1_SRC = tests/unit/test_phase1.c
 TEST2_SRC = tests/unit/test_phase2.c
 TEST3_SRC = tests/unit/test_phase3.c
+TEST4_SRC = tests/unit/test_phase4.c
 
 TEST1_OBJ = $(OBJ_DIR)/tests/unit/test_phase1.o
 TEST2_OBJ = $(OBJ_DIR)/tests/unit/test_phase2.o
 TEST3_OBJ = $(OBJ_DIR)/tests/unit/test_phase3.o
+TEST4_OBJ = $(OBJ_DIR)/tests/unit/test_phase4.o
 
 # Benchmark sources
 BENCH_SAMPLING_DECISION_SRC = benchmarks/sampling_decision.c
 BENCH_TRACE_CREATION_SRC = benchmarks/trace_creation.c
+BENCH_RING_BUFFER_SRC = benchmarks/ring_buffer_throughput.c
+BENCH_EXPORT_SRC = benchmarks/export_throughput.c
 
 BENCH_SAMPLING_DECISION_OBJ = $(OBJ_DIR)/benchmarks/sampling_decision.o
 BENCH_TRACE_CREATION_OBJ = $(OBJ_DIR)/benchmarks/trace_creation.o
+BENCH_RING_BUFFER_OBJ = $(OBJ_DIR)/benchmarks/ring_buffer_throughput.o
+BENCH_EXPORT_OBJ = $(OBJ_DIR)/benchmarks/export_throughput.o
 
 # Binaries
 EXAMPLE1_BIN = $(BIN_DIR)/example1-single-span
@@ -55,13 +61,16 @@ EXAMPLE4_BIN = $(BIN_DIR)/example4-sampling
 TEST1_BIN = $(TEST_DIR)/test_phase1
 TEST2_BIN = $(TEST_DIR)/test_phase2
 TEST3_BIN = $(TEST_DIR)/test_phase3
+TEST4_BIN = $(TEST_DIR)/test_phase4
 
 BENCH_SAMPLING_DECISION_BIN = $(BIN_DIR)/bench_sampling_decision
 BENCH_TRACE_CREATION_BIN = $(BIN_DIR)/bench_trace_creation
+BENCH_RING_BUFFER_BIN = $(BIN_DIR)/bench_ring_buffer
+BENCH_EXPORT_BIN = $(BIN_DIR)/bench_export
 
 EXAMPLES = $(EXAMPLE1_BIN) $(EXAMPLE2_BIN) $(EXAMPLE3_FRONTEND_BIN) $(EXAMPLE3_BACKEND_BIN) $(EXAMPLE4_BIN)
-TESTS = $(TEST1_BIN) $(TEST2_BIN) $(TEST3_BIN)
-BENCHMARKS = $(BENCH_SAMPLING_DECISION_BIN) $(BENCH_TRACE_CREATION_BIN)
+TESTS = $(TEST1_BIN) $(TEST2_BIN) $(TEST3_BIN) $(TEST4_BIN)
+BENCHMARKS = $(BENCH_SAMPLING_DECISION_BIN) $(BENCH_TRACE_CREATION_BIN) $(BENCH_RING_BUFFER_BIN) $(BENCH_EXPORT_BIN)
 
 # Source files for formatting
 FORMAT_SRCS = $(shell find src include examples tests -name '*.c' -o -name '*.h' 2>/dev/null | grep -v minunit.h)
@@ -77,6 +86,7 @@ all: format dirs examples tests
 dirs:
 	@mkdir -p $(OBJ_DIR)/core
 	@mkdir -p $(OBJ_DIR)/sampling
+	@mkdir -p $(OBJ_DIR)/export
 	@mkdir -p $(OBJ_DIR)/examples/01-single-span
 	@mkdir -p $(OBJ_DIR)/examples/02-parent-child
 	@mkdir -p $(OBJ_DIR)/examples/03-cross-process
@@ -137,6 +147,10 @@ $(TEST3_BIN): $(TEST3_OBJ) $(CORE_OBJS)
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS) -lm
 
+$(TEST4_BIN): $(TEST4_OBJ) $(CORE_OBJS)
+	@echo "Linking $@"
+	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
+
 # Link benchmarks
 $(BENCH_SAMPLING_DECISION_BIN): $(BENCH_SAMPLING_DECISION_OBJ) $(CORE_OBJS)
 	@echo "Linking $@"
@@ -145,6 +159,14 @@ $(BENCH_SAMPLING_DECISION_BIN): $(BENCH_SAMPLING_DECISION_OBJ) $(CORE_OBJS)
 $(BENCH_TRACE_CREATION_BIN): $(BENCH_TRACE_CREATION_OBJ) $(CORE_OBJS)
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS) -lm
+
+$(BENCH_RING_BUFFER_BIN): $(BENCH_RING_BUFFER_OBJ) $(CORE_OBJS)
+	@echo "Linking $@"
+	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
+
+$(BENCH_EXPORT_BIN): $(BENCH_EXPORT_OBJ) $(CORE_OBJS)
+	@echo "Linking $@"
+	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
 # Convenience targets
 examples: $(EXAMPLES)
@@ -181,6 +203,9 @@ run-tests: tests
 	@echo ""
 	@echo "=== Phase 3 Tests ==="
 	@$(TEST3_BIN)
+	@echo ""
+	@echo "=== Phase 4 Tests ==="
+	@$(TEST4_BIN)
 
 # Run benchmarks
 run-benchmarks: benchmarks
@@ -189,6 +214,12 @@ run-benchmarks: benchmarks
 	@echo ""
 	@echo "=== Trace Creation Benchmark ==="
 	@$(BENCH_TRACE_CREATION_BIN)
+	@echo ""
+	@echo "=== Ring Buffer Throughput Benchmark ==="
+	@$(BENCH_RING_BUFFER_BIN)
+	@echo ""
+	@echo "=== Export Submit Latency Benchmark ==="
+	@$(BENCH_EXPORT_BIN)
 
 # Code formatting
 format:
@@ -265,3 +296,10 @@ $(EXAMPLE3_BACKEND_OBJ): $(EXAMPLE3_BACKEND_SRC) include/dapper/trace.h include/
 
 $(TEST1_OBJ): $(TEST1_SRC) tests/unit/minunit.h include/dapper/trace.h include/dapper/span.h include/dapper/types.h
 $(TEST2_OBJ): $(TEST2_SRC) tests/unit/minunit.h include/dapper/trace.h include/dapper/span.h include/dapper/context.h include/dapper/types.h
+$(TEST4_OBJ): $(TEST4_SRC) tests/unit/minunit.h include/dapper/exporter.h include/dapper/trace.h include/dapper/span.h include/dapper/types.h
+
+$(OBJ_DIR)/export/serialize.o: src/export/serialize.c include/dapper/exporter.h include/dapper/types.h include/dapper/span.h
+$(OBJ_DIR)/export/ring_buffer.o: src/export/ring_buffer.c include/dapper/exporter.h include/dapper/types.h include/dapper/span.h
+$(OBJ_DIR)/export/file_sink.o: src/export/file_sink.c include/dapper/exporter.h
+$(OBJ_DIR)/export/udp_sink.o: src/export/udp_sink.c include/dapper/exporter.h
+$(OBJ_DIR)/export/exporter_thread.o: src/export/exporter_thread.c include/dapper/exporter.h

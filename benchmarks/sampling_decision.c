@@ -93,20 +93,20 @@ int main(void) {
     uint64_t max = timings[ITERATIONS - 1];
 
     printf("\nResults:\n");
-    printf("  Mean:  %lu ns\n", mean);
-    printf("  p50:   %lu ns\n", p50);
-    printf("  p90:   %lu ns\n", p90);
-    printf("  p99:   %lu ns\n", p99);
-    printf("  Min:   %lu ns\n", min);
-    printf("  Max:   %lu ns\n", max);
+    printf("  Mean:  %llu ns\n", (unsigned long long)mean);
+    printf("  p50:   %llu ns\n", (unsigned long long)p50);
+    printf("  p90:   %llu ns\n", (unsigned long long)p90);
+    printf("  p99:   %llu ns\n", (unsigned long long)p99);
+    printf("  Min:   %llu ns\n", (unsigned long long)min);
+    printf("  Max:   %llu ns\n", (unsigned long long)max);
 
     /* Get sampler statistics */
     sampler_stats_t stats;
     if (sampler_get_stats(sampler, &stats) == 0) {
         printf("\nSampler Statistics:\n");
-        printf("  Total decisions: %lu\n", stats.total_decisions);
-        printf("  Sampled: %lu\n", stats.sampled_count);
-        printf("  Dropped: %lu\n", stats.dropped_count);
+        printf("  Total decisions: %llu\n", (unsigned long long)stats.total_decisions);
+        printf("  Sampled: %llu\n", (unsigned long long)stats.sampled_count);
+        printf("  Dropped: %llu\n", (unsigned long long)stats.dropped_count);
         printf("  Actual rate: %.4f%%\n",
                100.0 * stats.sampled_count / stats.total_decisions);
     }
@@ -116,7 +116,7 @@ int main(void) {
     if (p50 < 200) {
         printf("Status: PASS ✓\n");
     } else {
-        printf("Status: FAIL (p50 = %lu ns)\n", p50);
+        printf("Status: FAIL (p50 = %llu ns)\n", (unsigned long long)p50);
     }
 
     free(timings);

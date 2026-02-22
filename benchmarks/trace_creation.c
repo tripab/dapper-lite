@@ -82,18 +82,18 @@ int main(void) {
     uint64_t max = timings[ITERATIONS - 1];
 
     printf("\nResults:\n");
-    printf("  Mean:  %lu ns\n", mean);
-    printf("  p50:   %lu ns\n", p50);
-    printf("  p90:   %lu ns\n", p90);
-    printf("  p99:   %lu ns\n", p99);
-    printf("  Min:   %lu ns\n", min);
-    printf("  Max:   %lu ns\n", max);
+    printf("  Mean:  %llu ns\n", (unsigned long long)mean);
+    printf("  p50:   %llu ns\n", (unsigned long long)p50);
+    printf("  p90:   %llu ns\n", (unsigned long long)p90);
+    printf("  p99:   %llu ns\n", (unsigned long long)p99);
+    printf("  Min:   %llu ns\n", (unsigned long long)min);
+    printf("  Max:   %llu ns\n", (unsigned long long)max);
 
     printf("\nTarget: < 300ns (p50)\n");
     if (p50 < 300) {
         printf("Status: PASS ✓\n");
     } else {
-        printf("Status: FAIL (p50 = %lu ns)\n", p50);
+        printf("Status: FAIL (p50 = %llu ns)\n", (unsigned long long)p50);
     }
 
     free(timings);

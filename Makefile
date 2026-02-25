@@ -16,6 +16,12 @@ TEST_DIR = $(BUILD_DIR)/test
 CORE_SRCS = src/core/trace.c src/core/span.c src/core/clock.c src/core/thread_local.c src/core/context.c src/sampling/sampler.c src/export/serialize.c src/export/ring_buffer.c src/export/file_sink.c src/export/udp_sink.c src/export/exporter_thread.c
 CORE_OBJS = $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(CORE_SRCS))
 
+# Collector source files
+COLLECTOR_SRCS = src/collector/protocol.c src/collector/receiver.c src/collector/assembler.c src/collector/storage.c src/collector/main.c
+COLLECTOR_OBJS = $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(COLLECTOR_SRCS))
+# Collector objects without main (for linking with tests)
+COLLECTOR_LIB_OBJS = $(filter-out $(OBJ_DIR)/collector/main.o,$(COLLECTOR_OBJS))
+
 # Example sources
 EXAMPLE1_SRC = examples/01-single-span/main.c
 EXAMPLE2_SRC = examples/02-parent-child/main.c
@@ -34,11 +40,13 @@ TEST1_SRC = tests/unit/test_phase1.c
 TEST2_SRC = tests/unit/test_phase2.c
 TEST3_SRC = tests/unit/test_phase3.c
 TEST4_SRC = tests/unit/test_phase4.c
+TEST5_SRC = tests/unit/test_phase5.c
 
 TEST1_OBJ = $(OBJ_DIR)/tests/unit/test_phase1.o
 TEST2_OBJ = $(OBJ_DIR)/tests/unit/test_phase2.o
 TEST3_OBJ = $(OBJ_DIR)/tests/unit/test_phase3.o
 TEST4_OBJ = $(OBJ_DIR)/tests/unit/test_phase4.o
+TEST5_OBJ = $(OBJ_DIR)/tests/unit/test_phase5.o
 
 # Benchmark sources
 BENCH_SAMPLING_DECISION_SRC = benchmarks/sampling_decision.c
@@ -62,6 +70,9 @@ TEST1_BIN = $(TEST_DIR)/test_phase1
 TEST2_BIN = $(TEST_DIR)/test_phase2
 TEST3_BIN = $(TEST_DIR)/test_phase3
 TEST4_BIN = $(TEST_DIR)/test_phase4
+TEST5_BIN = $(TEST_DIR)/test_phase5
+
+COLLECTOR_BIN = $(BIN_DIR)/collector
 
 BENCH_SAMPLING_DECISION_BIN = $(BIN_DIR)/bench_sampling_decision
 BENCH_TRACE_CREATION_BIN = $(BIN_DIR)/bench_trace_creation
@@ -69,7 +80,7 @@ BENCH_RING_BUFFER_BIN = $(BIN_DIR)/bench_ring_buffer
 BENCH_EXPORT_BIN = $(BIN_DIR)/bench_export
 
 EXAMPLES = $(EXAMPLE1_BIN) $(EXAMPLE2_BIN) $(EXAMPLE3_FRONTEND_BIN) $(EXAMPLE3_BACKEND_BIN) $(EXAMPLE4_BIN)
-TESTS = $(TEST1_BIN) $(TEST2_BIN) $(TEST3_BIN) $(TEST4_BIN)
+TESTS = $(TEST1_BIN) $(TEST2_BIN) $(TEST3_BIN) $(TEST4_BIN) $(TEST5_BIN)
 BENCHMARKS = $(BENCH_SAMPLING_DECISION_BIN) $(BENCH_TRACE_CREATION_BIN) $(BENCH_RING_BUFFER_BIN) $(BENCH_EXPORT_BIN)
 
 # Source files for formatting
@@ -78,9 +89,9 @@ FORMAT_SRCS = $(shell find src include examples tests -name '*.c' -o -name '*.h'
 # Check for clang-format
 CLANG_FORMAT := $(shell command -v clang-format 2> /dev/null)
 
-.PHONY: all clean examples tests run-examples run-tests valgrind format format-check dirs help
+.PHONY: all clean examples tests collector run-examples run-tests valgrind format format-check dirs help
 
-all: format dirs examples tests
+all: format dirs examples tests collector
 
 # Create build directories
 dirs:
@@ -91,6 +102,7 @@ dirs:
 	@mkdir -p $(OBJ_DIR)/examples/02-parent-child
 	@mkdir -p $(OBJ_DIR)/examples/03-cross-process
 	@mkdir -p $(OBJ_DIR)/examples/04-sampling
+	@mkdir -p $(OBJ_DIR)/collector
 	@mkdir -p $(OBJ_DIR)/tests/unit
 	@mkdir -p $(OBJ_DIR)/benchmarks
 	@mkdir -p $(BIN_DIR)
@@ -151,6 +163,20 @@ $(TEST4_BIN): $(TEST4_OBJ) $(CORE_OBJS)
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
+# Phase 5 test needs collector objects + COLLECTOR_NO_MAIN to avoid duplicate main
+$(OBJ_DIR)/collector/main.test.o: src/collector/main.c | dirs
+	@echo "Compiling $< (no main)"
+	@$(CC) $(CFLAGS) $(INCLUDES) -DCOLLECTOR_NO_MAIN -c $< -o $@
+
+$(TEST5_BIN): $(TEST5_OBJ) $(CORE_OBJS) $(COLLECTOR_LIB_OBJS) $(OBJ_DIR)/collector/main.test.o
+	@echo "Linking $@"
+	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
+
+# Collector daemon binary
+$(COLLECTOR_BIN): $(COLLECTOR_OBJS) $(CORE_OBJS)
+	@echo "Linking $@"
+	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
+
 # Link benchmarks
 $(BENCH_SAMPLING_DECISION_BIN): $(BENCH_SAMPLING_DECISION_OBJ) $(CORE_OBJS)
 	@echo "Linking $@"
@@ -172,6 +198,8 @@ $(BENCH_EXPORT_BIN): $(BENCH_EXPORT_OBJ) $(CORE_OBJS)
 examples: $(EXAMPLES)
 
 tests: $(TESTS)
+
+collector: $(COLLECTOR_BIN)
 
 benchmarks: $(BENCHMARKS)
 
@@ -206,6 +234,9 @@ run-tests: tests
 	@echo ""
 	@echo "=== Phase 4 Tests ==="
 	@$(TEST4_BIN)
+	@echo ""
+	@echo "=== Phase 5 Tests ==="
+	@$(TEST5_BIN)
 
 # Run benchmarks
 run-benchmarks: benchmarks
@@ -264,9 +295,10 @@ help:
 	@echo "Dapper-Lite Build System"
 	@echo ""
 	@echo "Targets:"
-	@echo "  all             - Build everything (format, examples, tests)"
+	@echo "  all             - Build everything (format, examples, tests, collector)"
 	@echo "  examples        - Build all examples"
 	@echo "  tests           - Build all tests"
+	@echo "  collector       - Build collector daemon"
 	@echo "  benchmarks      - Build all benchmarks"
 	@echo "  run-examples    - Run all examples"
 	@echo "  run-tests       - Run all unit tests"
@@ -303,3 +335,11 @@ $(OBJ_DIR)/export/ring_buffer.o: src/export/ring_buffer.c include/dapper/exporte
 $(OBJ_DIR)/export/file_sink.o: src/export/file_sink.c include/dapper/exporter.h
 $(OBJ_DIR)/export/udp_sink.o: src/export/udp_sink.c include/dapper/exporter.h
 $(OBJ_DIR)/export/exporter_thread.o: src/export/exporter_thread.c include/dapper/exporter.h
+
+$(OBJ_DIR)/collector/protocol.o: src/collector/protocol.c include/dapper/collector.h include/dapper/exporter.h include/dapper/types.h
+$(OBJ_DIR)/collector/receiver.o: src/collector/receiver.c include/dapper/collector.h include/dapper/exporter.h include/dapper/types.h
+$(OBJ_DIR)/collector/assembler.o: src/collector/assembler.c include/dapper/collector.h include/dapper/exporter.h include/dapper/types.h
+$(OBJ_DIR)/collector/storage.o: src/collector/storage.c include/dapper/collector.h include/dapper/exporter.h include/dapper/types.h
+$(OBJ_DIR)/collector/main.o: src/collector/main.c include/dapper/collector.h include/dapper/types.h
+
+$(TEST5_OBJ): $(TEST5_SRC) tests/unit/minunit.h include/dapper/collector.h include/dapper/exporter.h include/dapper/trace.h include/dapper/span.h include/dapper/types.h

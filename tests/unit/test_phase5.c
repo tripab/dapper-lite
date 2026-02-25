@@ -83,9 +83,12 @@ static const char *test_decode_null_args() {
   span_t span;
   bool sampled;
 
-  mu_assert("null data fails", collector_decode_span(NULL, 48, &span, &sampled) < 0);
-  mu_assert("null span fails", collector_decode_span(buf, 48, NULL, &sampled) < 0);
-  mu_assert("null sampled fails", collector_decode_span(buf, 48, &span, NULL) < 0);
+  mu_assert("null data fails",
+            collector_decode_span(NULL, 48, &span, &sampled) < 0);
+  mu_assert("null span fails",
+            collector_decode_span(buf, 48, NULL, &sampled) < 0);
+  mu_assert("null sampled fails",
+            collector_decode_span(buf, 48, &span, NULL) < 0);
   return NULL;
 }
 
@@ -491,10 +494,8 @@ static const char *test_collector_end_to_end() {
   /* Check stats */
   collector_stats_t stats;
   collector_get_stats(c, &stats);
-  mu_assert("at least 3 packets received",
-            stats.packets_received >= 3);
-  mu_assert("at least 3 spans processed",
-            stats.spans_processed >= 3);
+  mu_assert("at least 3 packets received", stats.packets_received >= 3);
+  mu_assert("at least 3 spans processed", stats.spans_processed >= 3);
 
   collector_stop(c);
 

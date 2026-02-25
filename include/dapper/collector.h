@@ -73,7 +73,7 @@ typedef struct partial_trace {
   bool sampled;
 
   /* Completion tracking */
-  bool has_root;            /* Root span (parent_span_id==0) received? */
+  bool has_root;               /* Root span (parent_span_id==0) received? */
   struct timespec last_update; /* Clock time of last span arrival */
 
   /* Hash table chaining */

@@ -29,9 +29,9 @@ static int udp_sink_write(sink_t *sink, const uint8_t *data, size_t len) {
 
   udp_sink_impl_t *impl = (udp_sink_impl_t *)sink->impl;
 
-  ssize_t sent = sendto(impl->sockfd, data, len, 0,
-                        (struct sockaddr *)&impl->dest_addr,
-                        sizeof(impl->dest_addr));
+  ssize_t sent =
+      sendto(impl->sockfd, data, len, 0, (struct sockaddr *)&impl->dest_addr,
+             sizeof(impl->dest_addr));
   if (sent < 0) {
     return -1;
   }

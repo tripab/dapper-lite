@@ -218,7 +218,10 @@ void collector_get_stats(const collector_t *c, collector_stats_t *stats) {
 
 /* ============================================================
  * Standalone daemon entry point
+ * (guarded so test binaries can link collector functions)
  * ============================================================ */
+
+#ifndef COLLECTOR_NO_MAIN
 
 static volatile sig_atomic_t g_shutdown = 0;
 
@@ -297,3 +300,5 @@ int main(int argc, char *argv[]) {
   printf("collector stopped.\n");
   return 0;
 }
+
+#endif /* COLLECTOR_NO_MAIN */

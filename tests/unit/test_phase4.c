@@ -76,8 +76,10 @@ static const char *test_serialize_null_safety() {
   span_t span;
   bool sampled;
 
-  mu_assert("NULL buffer returns -1", span_serialize(NULL, sizeof(buf), &span, false) == -1);
-  mu_assert("NULL span returns -1", span_serialize(buf, sizeof(buf), NULL, false) == -1);
+  mu_assert("NULL buffer returns -1",
+            span_serialize(NULL, sizeof(buf), &span, false) == -1);
+  mu_assert("NULL span returns -1",
+            span_serialize(buf, sizeof(buf), NULL, false) == -1);
   mu_assert("buffer too small returns -1",
             span_serialize(buf, 10, &span, false) == -1);
   mu_assert("deserialize NULL buffer returns -1",
@@ -111,7 +113,8 @@ static const char *test_serialize_annotation_truncation() {
   bool sampled;
   int consumed = span_deserialize(buf, (size_t)len, &decoded, &sampled);
   mu_assert("deserialize truncated should succeed", consumed > 0);
-  mu_assert("fewer annotations after truncation", decoded.annotation_count < 16);
+  mu_assert("fewer annotations after truncation",
+            decoded.annotation_count < 16);
   mu_assert("at least some annotations preserved",
             decoded.annotation_count > 0);
 
@@ -294,8 +297,7 @@ static const char *test_file_sink_write_read() {
   FILE *fp = fopen(path, "rb");
   mu_assert("file should exist", fp != NULL);
   uint32_t payload_len;
-  mu_assert("read length should succeed",
-            fread(&payload_len, 4, 1, fp) == 1);
+  mu_assert("read length should succeed", fread(&payload_len, 4, 1, fp) == 1);
   mu_assert_eq("payload length should match", (unsigned long)len,
                (unsigned long)payload_len);
 
@@ -374,9 +376,9 @@ static const char *test_udp_sink_send_receive() {
 
   span_t decoded;
   bool sampled;
-  mu_assert("deserialize received should succeed",
-            span_deserialize(g_udp_recv_buf, g_udp_recv_len, &decoded,
-                             &sampled) > 0);
+  mu_assert(
+      "deserialize received should succeed",
+      span_deserialize(g_udp_recv_buf, g_udp_recv_len, &decoded, &sampled) > 0);
   mu_assert_str_eq("name preserved over UDP", "udp_op", decoded.name);
   mu_assert("sampled=false preserved", sampled == false);
 

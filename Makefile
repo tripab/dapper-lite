@@ -13,7 +13,7 @@ BIN_DIR = $(BUILD_DIR)/bin
 TEST_DIR = $(BUILD_DIR)/test
 
 # Source files
-CORE_SRCS = src/core/trace.c src/core/span.c src/core/clock.c src/core/thread_local.c src/core/context.c src/sampling/sampler.c src/export/serialize.c src/export/ring_buffer.c src/export/file_sink.c src/export/udp_sink.c src/export/exporter_thread.c
+CORE_SRCS = src/core/trace.c src/core/span.c src/core/clock.c src/core/thread_local.c src/core/context.c src/sampling/sampler.c src/export/serialize.c src/export/ring_buffer.c src/export/file_sink.c src/export/udp_sink.c src/export/exporter_thread.c src/analysis/query.c src/analysis/critical_path.c src/analysis/aggregation.c src/analysis/export_json.c
 CORE_OBJS = $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(CORE_SRCS))
 
 # Collector source files
@@ -41,12 +41,14 @@ TEST2_SRC = tests/unit/test_phase2.c
 TEST3_SRC = tests/unit/test_phase3.c
 TEST4_SRC = tests/unit/test_phase4.c
 TEST5_SRC = tests/unit/test_phase5.c
+TEST6_SRC = tests/unit/test_phase6.c
 
 TEST1_OBJ = $(OBJ_DIR)/tests/unit/test_phase1.o
 TEST2_OBJ = $(OBJ_DIR)/tests/unit/test_phase2.o
 TEST3_OBJ = $(OBJ_DIR)/tests/unit/test_phase3.o
 TEST4_OBJ = $(OBJ_DIR)/tests/unit/test_phase4.o
 TEST5_OBJ = $(OBJ_DIR)/tests/unit/test_phase5.o
+TEST6_OBJ = $(OBJ_DIR)/tests/unit/test_phase6.o
 
 # Benchmark sources
 BENCH_SAMPLING_DECISION_SRC = benchmarks/sampling_decision.c
@@ -71,6 +73,7 @@ TEST2_BIN = $(TEST_DIR)/test_phase2
 TEST3_BIN = $(TEST_DIR)/test_phase3
 TEST4_BIN = $(TEST_DIR)/test_phase4
 TEST5_BIN = $(TEST_DIR)/test_phase5
+TEST6_BIN = $(TEST_DIR)/test_phase6
 
 COLLECTOR_BIN = $(BIN_DIR)/collector
 
@@ -80,7 +83,7 @@ BENCH_RING_BUFFER_BIN = $(BIN_DIR)/bench_ring_buffer
 BENCH_EXPORT_BIN = $(BIN_DIR)/bench_export
 
 EXAMPLES = $(EXAMPLE1_BIN) $(EXAMPLE2_BIN) $(EXAMPLE3_FRONTEND_BIN) $(EXAMPLE3_BACKEND_BIN) $(EXAMPLE4_BIN)
-TESTS = $(TEST1_BIN) $(TEST2_BIN) $(TEST3_BIN) $(TEST4_BIN) $(TEST5_BIN)
+TESTS = $(TEST1_BIN) $(TEST2_BIN) $(TEST3_BIN) $(TEST4_BIN) $(TEST5_BIN) $(TEST6_BIN)
 BENCHMARKS = $(BENCH_SAMPLING_DECISION_BIN) $(BENCH_TRACE_CREATION_BIN) $(BENCH_RING_BUFFER_BIN) $(BENCH_EXPORT_BIN)
 
 # Source files for formatting
@@ -102,6 +105,7 @@ dirs:
 	@mkdir -p $(OBJ_DIR)/examples/02-parent-child
 	@mkdir -p $(OBJ_DIR)/examples/03-cross-process
 	@mkdir -p $(OBJ_DIR)/examples/04-sampling
+	@mkdir -p $(OBJ_DIR)/analysis
 	@mkdir -p $(OBJ_DIR)/collector
 	@mkdir -p $(OBJ_DIR)/tests/unit
 	@mkdir -p $(OBJ_DIR)/benchmarks
@@ -172,6 +176,12 @@ $(TEST5_BIN): $(TEST5_OBJ) $(CORE_OBJS) $(COLLECTOR_LIB_OBJS) $(OBJ_DIR)/collect
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
+# Phase 6 test needs collector lib objects (storage, assembler, protocol, receiver)
+# and collector/main.test.o for collector_default_config etc.
+$(TEST6_BIN): $(TEST6_OBJ) $(CORE_OBJS) $(COLLECTOR_LIB_OBJS) $(OBJ_DIR)/collector/main.test.o
+	@echo "Linking $@"
+	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
+
 # Collector daemon binary
 $(COLLECTOR_BIN): $(COLLECTOR_OBJS) $(CORE_OBJS)
 	@echo "Linking $@"
@@ -237,6 +247,9 @@ run-tests: tests
 	@echo ""
 	@echo "=== Phase 5 Tests ==="
 	@$(TEST5_BIN)
+	@echo ""
+	@echo "=== Phase 6 Tests ==="
+	@$(TEST6_BIN)
 
 # Run benchmarks
 run-benchmarks: benchmarks
@@ -343,3 +356,10 @@ $(OBJ_DIR)/collector/storage.o: src/collector/storage.c include/dapper/collector
 $(OBJ_DIR)/collector/main.o: src/collector/main.c include/dapper/collector.h include/dapper/types.h
 
 $(TEST5_OBJ): $(TEST5_SRC) tests/unit/minunit.h include/dapper/collector.h include/dapper/exporter.h include/dapper/trace.h include/dapper/span.h include/dapper/types.h
+
+$(OBJ_DIR)/analysis/query.o: src/analysis/query.c include/dapper/analysis.h include/dapper/exporter.h include/dapper/trace.h include/dapper/types.h
+$(OBJ_DIR)/analysis/critical_path.o: src/analysis/critical_path.c include/dapper/analysis.h include/dapper/span.h include/dapper/types.h
+$(OBJ_DIR)/analysis/aggregation.o: src/analysis/aggregation.c include/dapper/analysis.h include/dapper/types.h
+$(OBJ_DIR)/analysis/export_json.o: src/analysis/export_json.c include/dapper/analysis.h include/dapper/types.h
+
+$(TEST6_OBJ): $(TEST6_SRC) tests/unit/minunit.h include/dapper/analysis.h include/dapper/collector.h include/dapper/exporter.h include/dapper/trace.h include/dapper/span.h include/dapper/types.h

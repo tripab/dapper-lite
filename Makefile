@@ -28,12 +28,18 @@ EXAMPLE2_SRC = examples/02-parent-child/main.c
 EXAMPLE3_FRONTEND_SRC = examples/03-cross-process/frontend.c
 EXAMPLE3_BACKEND_SRC = examples/03-cross-process/backend.c
 EXAMPLE4_SRC = examples/04-sampling/main.c
+EXAMPLE5_FRONTEND_SRC = examples/05-full-system/frontend.c
+EXAMPLE5_MIDDLEWARE_SRC = examples/05-full-system/middleware.c
+EXAMPLE5_DATABASE_SRC = examples/05-full-system/database.c
 
 EXAMPLE1_OBJ = $(OBJ_DIR)/examples/01-single-span/main.o
 EXAMPLE2_OBJ = $(OBJ_DIR)/examples/02-parent-child/main.o
 EXAMPLE3_FRONTEND_OBJ = $(OBJ_DIR)/examples/03-cross-process/frontend.o
 EXAMPLE3_BACKEND_OBJ = $(OBJ_DIR)/examples/03-cross-process/backend.o
 EXAMPLE4_OBJ = $(OBJ_DIR)/examples/04-sampling/main.o
+EXAMPLE5_FRONTEND_OBJ = $(OBJ_DIR)/examples/05-full-system/frontend.o
+EXAMPLE5_MIDDLEWARE_OBJ = $(OBJ_DIR)/examples/05-full-system/middleware.o
+EXAMPLE5_DATABASE_OBJ = $(OBJ_DIR)/examples/05-full-system/database.o
 
 # Test sources
 TEST1_SRC = tests/unit/test_phase1.c
@@ -67,6 +73,9 @@ EXAMPLE2_BIN = $(BIN_DIR)/example2-parent-child
 EXAMPLE3_FRONTEND_BIN = $(BIN_DIR)/example3-frontend
 EXAMPLE3_BACKEND_BIN = $(BIN_DIR)/example3-backend
 EXAMPLE4_BIN = $(BIN_DIR)/example4-sampling
+EXAMPLE5_FRONTEND_BIN = $(BIN_DIR)/example5-frontend
+EXAMPLE5_MIDDLEWARE_BIN = $(BIN_DIR)/example5-middleware
+EXAMPLE5_DATABASE_BIN = $(BIN_DIR)/example5-database
 
 TEST1_BIN = $(TEST_DIR)/test_phase1
 TEST2_BIN = $(TEST_DIR)/test_phase2
@@ -82,7 +91,7 @@ BENCH_TRACE_CREATION_BIN = $(BIN_DIR)/bench_trace_creation
 BENCH_RING_BUFFER_BIN = $(BIN_DIR)/bench_ring_buffer
 BENCH_EXPORT_BIN = $(BIN_DIR)/bench_export
 
-EXAMPLES = $(EXAMPLE1_BIN) $(EXAMPLE2_BIN) $(EXAMPLE3_FRONTEND_BIN) $(EXAMPLE3_BACKEND_BIN) $(EXAMPLE4_BIN)
+EXAMPLES = $(EXAMPLE1_BIN) $(EXAMPLE2_BIN) $(EXAMPLE3_FRONTEND_BIN) $(EXAMPLE3_BACKEND_BIN) $(EXAMPLE4_BIN) $(EXAMPLE5_FRONTEND_BIN) $(EXAMPLE5_MIDDLEWARE_BIN) $(EXAMPLE5_DATABASE_BIN)
 TESTS = $(TEST1_BIN) $(TEST2_BIN) $(TEST3_BIN) $(TEST4_BIN) $(TEST5_BIN) $(TEST6_BIN)
 BENCHMARKS = $(BENCH_SAMPLING_DECISION_BIN) $(BENCH_TRACE_CREATION_BIN) $(BENCH_RING_BUFFER_BIN) $(BENCH_EXPORT_BIN)
 
@@ -92,7 +101,7 @@ FORMAT_SRCS = $(shell find src include examples tests -name '*.c' -o -name '*.h'
 # Check for clang-format
 CLANG_FORMAT := $(shell command -v clang-format 2> /dev/null)
 
-.PHONY: all clean examples tests collector run-examples run-tests valgrind format format-check dirs help
+.PHONY: all clean examples tests collector run-examples run-tests run-full-system run-visualization valgrind format format-check dirs help
 
 all: format dirs examples tests collector
 
@@ -105,6 +114,7 @@ dirs:
 	@mkdir -p $(OBJ_DIR)/examples/02-parent-child
 	@mkdir -p $(OBJ_DIR)/examples/03-cross-process
 	@mkdir -p $(OBJ_DIR)/examples/04-sampling
+	@mkdir -p $(OBJ_DIR)/examples/05-full-system
 	@mkdir -p $(OBJ_DIR)/analysis
 	@mkdir -p $(OBJ_DIR)/collector
 	@mkdir -p $(OBJ_DIR)/tests/unit
@@ -147,6 +157,18 @@ $(EXAMPLE3_BACKEND_BIN): $(EXAMPLE3_BACKEND_OBJ) $(CORE_OBJS)
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
 $(EXAMPLE4_BIN): $(EXAMPLE4_OBJ) $(CORE_OBJS)
+	@echo "Linking $@"
+	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
+
+$(EXAMPLE5_FRONTEND_BIN): $(EXAMPLE5_FRONTEND_OBJ) $(CORE_OBJS)
+	@echo "Linking $@"
+	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
+
+$(EXAMPLE5_MIDDLEWARE_BIN): $(EXAMPLE5_MIDDLEWARE_OBJ) $(CORE_OBJS)
+	@echo "Linking $@"
+	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
+
+$(EXAMPLE5_DATABASE_BIN): $(EXAMPLE5_DATABASE_OBJ) $(CORE_OBJS)
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
@@ -265,6 +287,24 @@ run-benchmarks: benchmarks
 	@echo "=== Export Submit Latency Benchmark ==="
 	@$(BENCH_EXPORT_BIN)
 
+# Run full system demo (Phase 7)
+run-full-system: examples collector
+	@echo "=== Full System Demo ==="
+	@./examples/05-full-system/run.sh
+
+# Run visualization on existing trace JSON files
+run-visualization:
+	@if [ -d "traces" ] && ls traces/*.json >/dev/null 2>&1; then \
+		echo "=== Latency Analysis ==="; \
+		python3 scripts/analyze_latency.py traces/; \
+		echo ""; \
+		echo "=== Generating Waterfall ==="; \
+		FIRST=$$(ls traces/*.json | head -1); \
+		python3 scripts/visualize_trace.py "$$FIRST" traces/waterfall.png; \
+	else \
+		echo "No trace JSON files found. Run 'make run-full-system' first."; \
+	fi
+
 # Code formatting
 format:
 ifdef CLANG_FORMAT
@@ -316,6 +356,8 @@ help:
 	@echo "  run-examples    - Run all examples"
 	@echo "  run-tests       - Run all unit tests"
 	@echo "  run-benchmarks  - Run all benchmarks"
+	@echo "  run-full-system - Run full system demo (Phase 7)"
+	@echo "  run-visualization - Run analysis scripts on trace JSON files"
 	@echo "  format          - Format all source files with clang-format"
 	@echo "  format-check    - Check if files are properly formatted"
 	@echo "  valgrind        - Run valgrind memory checks"
@@ -363,3 +405,7 @@ $(OBJ_DIR)/analysis/aggregation.o: src/analysis/aggregation.c include/dapper/ana
 $(OBJ_DIR)/analysis/export_json.o: src/analysis/export_json.c include/dapper/analysis.h include/dapper/types.h
 
 $(TEST6_OBJ): $(TEST6_SRC) tests/unit/minunit.h include/dapper/analysis.h include/dapper/collector.h include/dapper/exporter.h include/dapper/trace.h include/dapper/span.h include/dapper/types.h
+
+$(EXAMPLE5_FRONTEND_OBJ): $(EXAMPLE5_FRONTEND_SRC) include/dapper/trace.h include/dapper/span.h include/dapper/context.h include/dapper/exporter.h include/dapper/sampler.h include/dapper/analysis.h include/dapper/types.h
+$(EXAMPLE5_MIDDLEWARE_OBJ): $(EXAMPLE5_MIDDLEWARE_SRC) include/dapper/trace.h include/dapper/span.h include/dapper/context.h include/dapper/exporter.h include/dapper/types.h
+$(EXAMPLE5_DATABASE_OBJ): $(EXAMPLE5_DATABASE_SRC) include/dapper/trace.h include/dapper/span.h include/dapper/context.h include/dapper/exporter.h include/dapper/types.h

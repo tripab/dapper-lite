@@ -61,11 +61,19 @@ BENCH_SAMPLING_DECISION_SRC = benchmarks/sampling_decision.c
 BENCH_TRACE_CREATION_SRC = benchmarks/trace_creation.c
 BENCH_RING_BUFFER_SRC = benchmarks/ring_buffer_throughput.c
 BENCH_EXPORT_SRC = benchmarks/export_throughput.c
+BENCH_CONTEXT_INJECT_SRC = benchmarks/context_inject.c
+BENCH_SPAN_CREATION_SRC = benchmarks/span_creation.c
+BENCH_COLLECTOR_INGEST_SRC = benchmarks/collector_ingest.c
+BENCH_OVERHEAD_SRC = benchmarks/overhead_analysis.c
 
 BENCH_SAMPLING_DECISION_OBJ = $(OBJ_DIR)/benchmarks/sampling_decision.o
 BENCH_TRACE_CREATION_OBJ = $(OBJ_DIR)/benchmarks/trace_creation.o
 BENCH_RING_BUFFER_OBJ = $(OBJ_DIR)/benchmarks/ring_buffer_throughput.o
 BENCH_EXPORT_OBJ = $(OBJ_DIR)/benchmarks/export_throughput.o
+BENCH_CONTEXT_INJECT_OBJ = $(OBJ_DIR)/benchmarks/context_inject.o
+BENCH_SPAN_CREATION_OBJ = $(OBJ_DIR)/benchmarks/span_creation.o
+BENCH_COLLECTOR_INGEST_OBJ = $(OBJ_DIR)/benchmarks/collector_ingest.o
+BENCH_OVERHEAD_OBJ = $(OBJ_DIR)/benchmarks/overhead_analysis.o
 
 # Binaries
 EXAMPLE1_BIN = $(BIN_DIR)/example1-single-span
@@ -90,10 +98,14 @@ BENCH_SAMPLING_DECISION_BIN = $(BIN_DIR)/bench_sampling_decision
 BENCH_TRACE_CREATION_BIN = $(BIN_DIR)/bench_trace_creation
 BENCH_RING_BUFFER_BIN = $(BIN_DIR)/bench_ring_buffer
 BENCH_EXPORT_BIN = $(BIN_DIR)/bench_export
+BENCH_CONTEXT_INJECT_BIN = $(BIN_DIR)/bench_context_inject
+BENCH_SPAN_CREATION_BIN = $(BIN_DIR)/bench_span_creation
+BENCH_COLLECTOR_INGEST_BIN = $(BIN_DIR)/bench_collector_ingest
+BENCH_OVERHEAD_BIN = $(BIN_DIR)/bench_overhead
 
 EXAMPLES = $(EXAMPLE1_BIN) $(EXAMPLE2_BIN) $(EXAMPLE3_FRONTEND_BIN) $(EXAMPLE3_BACKEND_BIN) $(EXAMPLE4_BIN) $(EXAMPLE5_FRONTEND_BIN) $(EXAMPLE5_MIDDLEWARE_BIN) $(EXAMPLE5_DATABASE_BIN)
 TESTS = $(TEST1_BIN) $(TEST2_BIN) $(TEST3_BIN) $(TEST4_BIN) $(TEST5_BIN) $(TEST6_BIN)
-BENCHMARKS = $(BENCH_SAMPLING_DECISION_BIN) $(BENCH_TRACE_CREATION_BIN) $(BENCH_RING_BUFFER_BIN) $(BENCH_EXPORT_BIN)
+BENCHMARKS = $(BENCH_SAMPLING_DECISION_BIN) $(BENCH_TRACE_CREATION_BIN) $(BENCH_RING_BUFFER_BIN) $(BENCH_EXPORT_BIN) $(BENCH_CONTEXT_INJECT_BIN) $(BENCH_SPAN_CREATION_BIN) $(BENCH_COLLECTOR_INGEST_BIN) $(BENCH_OVERHEAD_BIN)
 
 # Source files for formatting
 FORMAT_SRCS = $(shell find src include examples tests -name '*.c' -o -name '*.h' 2>/dev/null | grep -v minunit.h)
@@ -226,6 +238,23 @@ $(BENCH_EXPORT_BIN): $(BENCH_EXPORT_OBJ) $(CORE_OBJS)
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
+$(BENCH_CONTEXT_INJECT_BIN): $(BENCH_CONTEXT_INJECT_OBJ) $(CORE_OBJS)
+	@echo "Linking $@"
+	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
+
+$(BENCH_SPAN_CREATION_BIN): $(BENCH_SPAN_CREATION_OBJ) $(CORE_OBJS)
+	@echo "Linking $@"
+	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
+
+# Collector ingest benchmark needs collector objects + COLLECTOR_NO_MAIN
+$(BENCH_COLLECTOR_INGEST_BIN): $(BENCH_COLLECTOR_INGEST_OBJ) $(CORE_OBJS) $(COLLECTOR_LIB_OBJS) $(OBJ_DIR)/collector/main.test.o
+	@echo "Linking $@"
+	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
+
+$(BENCH_OVERHEAD_BIN): $(BENCH_OVERHEAD_OBJ) $(CORE_OBJS)
+	@echo "Linking $@"
+	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
+
 # Convenience targets
 examples: $(EXAMPLES)
 
@@ -286,6 +315,18 @@ run-benchmarks: benchmarks
 	@echo ""
 	@echo "=== Export Submit Latency Benchmark ==="
 	@$(BENCH_EXPORT_BIN)
+	@echo ""
+	@echo "=== Context Injection Benchmark ==="
+	@$(BENCH_CONTEXT_INJECT_BIN)
+	@echo ""
+	@echo "=== Span Creation Benchmark ==="
+	@$(BENCH_SPAN_CREATION_BIN)
+	@echo ""
+	@echo "=== Collector Ingestion Benchmark ==="
+	@$(BENCH_COLLECTOR_INGEST_BIN)
+	@echo ""
+	@echo "=== Overhead Analysis ==="
+	@$(BENCH_OVERHEAD_BIN)
 
 # Run full system demo (Phase 7)
 run-full-system: examples collector
@@ -409,3 +450,12 @@ $(TEST6_OBJ): $(TEST6_SRC) tests/unit/minunit.h include/dapper/analysis.h includ
 $(EXAMPLE5_FRONTEND_OBJ): $(EXAMPLE5_FRONTEND_SRC) include/dapper/trace.h include/dapper/span.h include/dapper/context.h include/dapper/exporter.h include/dapper/sampler.h include/dapper/analysis.h include/dapper/types.h
 $(EXAMPLE5_MIDDLEWARE_OBJ): $(EXAMPLE5_MIDDLEWARE_SRC) include/dapper/trace.h include/dapper/span.h include/dapper/context.h include/dapper/exporter.h include/dapper/types.h
 $(EXAMPLE5_DATABASE_OBJ): $(EXAMPLE5_DATABASE_SRC) include/dapper/trace.h include/dapper/span.h include/dapper/context.h include/dapper/exporter.h include/dapper/types.h
+
+$(BENCH_SAMPLING_DECISION_OBJ): $(BENCH_SAMPLING_DECISION_SRC) benchmarks/common.h include/dapper/sampler.h include/dapper/types.h
+$(BENCH_TRACE_CREATION_OBJ): $(BENCH_TRACE_CREATION_SRC) benchmarks/common.h include/dapper/trace.h include/dapper/sampler.h include/dapper/types.h
+$(BENCH_RING_BUFFER_OBJ): $(BENCH_RING_BUFFER_SRC) benchmarks/common.h include/dapper/exporter.h include/dapper/span.h include/dapper/trace.h include/dapper/types.h
+$(BENCH_EXPORT_OBJ): $(BENCH_EXPORT_SRC) benchmarks/common.h include/dapper/exporter.h include/dapper/span.h include/dapper/trace.h include/dapper/types.h
+$(BENCH_CONTEXT_INJECT_OBJ): $(BENCH_CONTEXT_INJECT_SRC) benchmarks/common.h include/dapper/context.h include/dapper/span.h include/dapper/trace.h include/dapper/types.h
+$(BENCH_SPAN_CREATION_OBJ): $(BENCH_SPAN_CREATION_SRC) benchmarks/common.h include/dapper/span.h include/dapper/trace.h include/dapper/types.h
+$(BENCH_COLLECTOR_INGEST_OBJ): $(BENCH_COLLECTOR_INGEST_SRC) benchmarks/common.h include/dapper/collector.h include/dapper/exporter.h include/dapper/span.h include/dapper/trace.h include/dapper/types.h
+$(BENCH_OVERHEAD_OBJ): $(BENCH_OVERHEAD_SRC) benchmarks/common.h include/dapper/context.h include/dapper/exporter.h include/dapper/sampler.h include/dapper/span.h include/dapper/trace.h include/dapper/types.h

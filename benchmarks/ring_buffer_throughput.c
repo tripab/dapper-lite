@@ -6,27 +6,18 @@
  */
 
 #define _POSIX_C_SOURCE 200809L
+#include "common.h"
 #include "dapper/exporter.h"
 #include "dapper/span.h"
 #include "dapper/trace.h"
 #include <pthread.h>
 #include <stdatomic.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <time.h>
 
 #define NUM_SPANS 1000000
 #define RING_CAP 4096
 
 static ring_buffer_t *g_rb;
 static _Atomic int g_consumed;
-
-static uint64_t get_time_ns(void) {
-  struct timespec ts;
-  clock_gettime(CLOCK_MONOTONIC, &ts);
-  return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
-}
 
 static void *producer_func(void *arg) {
   trace_t *trace = (trace_t *)arg;
@@ -73,7 +64,7 @@ int main(void) {
 
   printf("Running benchmark...\n");
 
-  uint64_t start = get_time_ns();
+  uint64_t start = bench_get_time_ns();
 
   pthread_t prod, cons;
   pthread_create(&cons, NULL, consumer_func, NULL);
@@ -82,7 +73,7 @@ int main(void) {
   pthread_join(prod, NULL);
   pthread_join(cons, NULL);
 
-  uint64_t end = get_time_ns();
+  uint64_t end = bench_get_time_ns();
   uint64_t elapsed_ns = end - start;
   double elapsed_s = (double)elapsed_ns / 1e9;
   double throughput = (double)NUM_SPANS / elapsed_s;
@@ -93,15 +84,10 @@ int main(void) {
   printf("  Throughput: %.0f spans/sec\n", throughput);
   printf("  Per-span: %.0f ns\n", (double)elapsed_ns / NUM_SPANS);
 
-  printf("\nTarget: > 1,000,000 spans/sec\n");
-  if (throughput > 1000000.0) {
-    printf("Status: PASS\n");
-  } else {
-    printf("Status: FAIL (%.0f spans/sec)\n", throughput);
-  }
+  int rc = bench_check_throughput(throughput, 1000000.0, "ring buffer");
 
   ring_buffer_destroy(g_rb);
   trace_destroy(trace);
 
-  return (throughput > 1000000.0) ? 0 : 1;
+  return rc;
 }

@@ -73,7 +73,7 @@ static const char *test_serialize_roundtrip() {
 
 static const char *test_serialize_null_safety() {
   uint8_t buf[SPAN_WIRE_MAX_SIZE];
-  span_t span;
+  span_t span = {0};
   bool sampled;
 
   mu_assert("NULL buffer returns -1",

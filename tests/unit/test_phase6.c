@@ -266,6 +266,33 @@ static const char *test_query_slowest() {
   return NULL;
 }
 
+static const char *test_query_slowest_nonpositive_limit() {
+  const char *path = "/tmp/test_phase6_slowest_limit.bin";
+  mu_assert("write test storage", write_test_storage_multi(path) == 0);
+
+  int count = -1;
+  trace_t **result = query_slowest_traces(path, 0, &count);
+  mu_assert("limit == 0 returns NULL", result == NULL);
+  mu_assert_eq("limit == 0 yields count 0", 0UL, (unsigned long)count);
+
+  count = -1;
+  result = query_slowest_traces(path, -5, &count);
+  mu_assert("limit < 0 returns NULL", result == NULL);
+  mu_assert_eq("limit < 0 yields count 0", 0UL, (unsigned long)count);
+
+  /* Storage must remain readable after the rejected queries */
+  count = 0;
+  result = query_slowest_traces(path, 1, &count);
+  mu_assert("limit == 1 succeeds", result != NULL);
+  mu_assert_eq("limit == 1 yields count 1", 1UL, (unsigned long)count);
+  mu_assert_eq("slowest is trace 200", 200UL, (unsigned long)result[0]->id);
+  trace_destroy(result[0]);
+  free(result);
+
+  unlink(path);
+  return NULL;
+}
+
 static const char *test_query_null_args() {
   int count;
   mu_assert("null path returns NULL", query_load_all(NULL, &count) == NULL);
@@ -469,6 +496,7 @@ static const char *all_tests() {
   mu_run_test(test_query_by_id_found);
   mu_run_test(test_query_by_id_not_found);
   mu_run_test(test_query_slowest);
+  mu_run_test(test_query_slowest_nonpositive_limit);
   mu_run_test(test_query_null_args);
 
   /* Critical path */

@@ -277,6 +277,10 @@ trace_t **query_slowest_traces(const char *storage_path, int limit,
   }
   *out_count = 0;
 
+  if (limit <= 0) {
+    return NULL;
+  }
+
   int total;
   trace_t **all = query_load_all(storage_path, &total);
   if (!all) {

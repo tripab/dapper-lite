@@ -563,6 +563,34 @@ static const char *test_load_truncated_payload() {
   return NULL;
 }
 
+static const char *test_load_malformed_inner_span() {
+  /* Valid framing (1 span, 48-byte payload) but the span header claims
+   * a name longer than the payload, so span_deserialize() rejects it. */
+  const char *path = "/tmp/test_phase6_bad_span.bin";
+  mu_assert("write header", write_trace_header(path, 7, 1) == 0);
+  uint8_t slen[4] = {0, 0, 0, 48}; /* header-only span payload */
+  mu_assert("write span len", append_bytes(path, slen, sizeof(slen)) == 0);
+
+  uint8_t span_hdr[48] = {0};
+  span_hdr[0] = 0; /* trace_id high bytes... */
+  span_hdr[7] = 7; /* trace_id = 7 */
+  span_hdr[15] = 1; /* span_id = 1 */
+  /* name_len at offset 42 (big-endian) = 100, exceeds the 48-byte payload */
+  span_hdr[42] = 0;
+  span_hdr[43] = 100;
+  mu_assert("write span header",
+            append_bytes(path, span_hdr, sizeof(span_hdr)) == 0);
+
+  int count = -1;
+  trace_read_status_t status = TRACE_READ_OK;
+  trace_t **traces = query_load_all_status(path, &count, &status);
+  mu_assert("no traces loaded", traces == NULL);
+  mu_assert("status is corrupt", status == TRACE_READ_CORRUPT);
+
+  unlink(path);
+  return NULL;
+}
+
 static const char *test_load_valid_prefix_then_corrupt() {
   /* A valid trace followed by a truncated record: the valid prefix is
    * returned and corruption is reported rather than silently dropped. */
@@ -895,6 +923,7 @@ static const char *all_tests() {
   mu_run_test(test_load_overlarge_num_spans);
   mu_run_test(test_load_overlarge_span_len);
   mu_run_test(test_load_truncated_payload);
+  mu_run_test(test_load_malformed_inner_span);
   mu_run_test(test_load_valid_prefix_then_corrupt);
 
   /* Critical path */

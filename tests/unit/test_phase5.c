@@ -436,6 +436,20 @@ static const char *test_storage_null_args() {
   return NULL;
 }
 
+/* D2: opening storage under a non-existent directory must fail cleanly,
+ * and a collector pointed at such a path must refuse to start. */
+static const char *test_storage_unwritable_path() {
+  const char *bad = "/nonexistent_dir_dapper/should_fail.bin";
+  mu_assert("open in missing dir fails", storage_open(bad) == NULL);
+
+  collector_config_t config = collector_default_config();
+  config.port = 0;
+  config.storage_path = bad;
+  mu_assert("collector rejects unwritable storage",
+            collector_create(&config) == NULL);
+  return NULL;
+}
+
 /* B6: the header's declared span count must always equal the number
  * of span records that follow, so a record is never written
  * half-formed. */
@@ -592,6 +606,10 @@ static bool pred_one_packet(const collector_stats_t *s) {
   return s->packets_received >= 1;
 }
 
+static bool pred_one_invalid(const collector_stats_t *s) {
+  return s->packets_invalid >= 1;
+}
+
 static bool reject_all_auth(const char *source_ip, const uint8_t *data,
                             size_t len, void *user_data) {
   (void)source_ip;
@@ -674,6 +692,55 @@ static const char *test_collector_allowlist_rejects() {
 
   collector_stop(c);
   collector_destroy(c);
+  unlink(storage_path);
+  return NULL;
+}
+
+/* D2: a malformed datagram must be counted invalid and never produce a
+ * span or a stored trace. */
+static const char *test_collector_rejects_invalid_udp() {
+  const char *storage_path = "/tmp/test_phase5_invalid_udp.bin";
+  unlink(storage_path);
+
+  collector_config_t config = collector_default_config();
+  config.port = 0; /* ephemeral */
+  config.storage_path = storage_path;
+
+  collector_t *c = collector_create(&config);
+  mu_assert("collector create should succeed", c != NULL);
+  mu_assert("collector start should succeed", collector_start(c) == 0);
+  int port = collector_port(c);
+  mu_assert("ephemeral port", port > 0);
+  usleep(50000);
+
+  int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+  struct sockaddr_in dest;
+  memset(&dest, 0, sizeof(dest));
+  dest.sin_family = AF_INET;
+  dest.sin_port = htons((uint16_t)port);
+  dest.sin_addr.s_addr = htonl(0x7f000001);
+
+  /* Too short to be a span header -> rejected by collector_decode_span. */
+  uint8_t garbage[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+  sendto(sockfd, garbage, sizeof(garbage), 0, (struct sockaddr *)&dest,
+         sizeof(dest));
+  close(sockfd);
+
+  collector_stats_t stats;
+  mu_assert("invalid packet counted",
+            wait_for_stats(c, &stats, pred_one_invalid, 2000) == 0);
+  mu_assert_eq("no spans processed", 0UL, (unsigned long)stats.spans_processed);
+
+  collector_stop(c);
+  collector_destroy(c);
+
+  /* No trace should have been written. */
+  FILE *fp = fopen(storage_path, "rb");
+  if (fp) {
+    fseek(fp, 0, SEEK_END);
+    mu_assert_eq("storage stays empty", 0L, ftell(fp));
+    fclose(fp);
+  }
   unlink(storage_path);
   return NULL;
 }
@@ -788,6 +855,7 @@ static const char *all_tests() {
   /* Storage */
   mu_run_test(test_storage_write_and_readback);
   mu_run_test(test_storage_null_args);
+  mu_run_test(test_storage_unwritable_path);
   mu_run_test(test_storage_record_is_consistent);
 
   /* Resource caps and hardening */
@@ -796,6 +864,7 @@ static const char *all_tests() {
   mu_run_test(test_collector_rejects_bad_config);
   mu_run_test(test_collector_auth_hook_rejects);
   mu_run_test(test_collector_allowlist_rejects);
+  mu_run_test(test_collector_rejects_invalid_udp);
 
   /* End-to-end */
   mu_run_test(test_collector_end_to_end);

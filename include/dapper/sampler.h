@@ -112,21 +112,11 @@ typedef struct {
 
 int sampler_get_stats(sampler_t *sampler, sampler_stats_t *stats);
 
-/**
- * Type-specific functions (for advanced use)
- *
- * Most users should use the generic functions above.
- * These are exposed for testing and special cases.
- */
-int sampler_should_sample_adaptive(sampler_t *sampler, const char *endpoint,
-                                   sampling_decision_t *decision);
-int sampler_should_sample_override(sampler_t *sampler, const char *endpoint,
-                                   sampling_decision_t *decision);
-
-void sampler_destroy_adaptive(sampler_t *sampler);
-void sampler_destroy_override(sampler_t *sampler);
-
-int sampler_get_stats_adaptive(sampler_t *sampler, sampler_stats_t *stats);
-int sampler_get_stats_override(sampler_t *sampler, sampler_stats_t *stats);
+/* The sampler type (probability / adaptive / override) is dispatched
+ * internally by sampler_should_sample(), sampler_destroy(), and
+ * sampler_get_stats(). There are intentionally no exported
+ * type-specific entry points: earlier versions declared
+ * sampler_should_sample_adaptive/_override and destroy/stats variants
+ * that were never implemented, which broke external linkers. */
 
 #endif /* DAPPER_SAMPLER_H */

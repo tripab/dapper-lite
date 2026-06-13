@@ -122,6 +122,10 @@ trace_map_t *trace_map_create(size_t num_buckets) {
 
   tm->num_buckets = num_buckets;
   tm->count = 0;
+  tm->max_traces = COLLECTOR_DEFAULT_MAX_ACTIVE_TRACES;
+  tm->max_spans_per_trace = COLLECTOR_DEFAULT_MAX_SPANS_PER_TRACE;
+  tm->traces_dropped = 0;
+  tm->spans_dropped = 0;
 
   if (pthread_mutex_init(&tm->lock, NULL) != 0) {
     free(tm->buckets);
@@ -152,6 +156,32 @@ void trace_map_destroy(trace_map_t *tm) {
   free(tm);
 }
 
+void trace_map_set_limits(trace_map_t *tm, size_t max_traces,
+                          int max_spans_per_trace) {
+  if (!tm) {
+    return;
+  }
+  pthread_mutex_lock(&tm->lock);
+  tm->max_traces = max_traces;
+  tm->max_spans_per_trace = max_spans_per_trace;
+  pthread_mutex_unlock(&tm->lock);
+}
+
+void trace_map_get_drop_stats(trace_map_t *tm, uint64_t *traces_dropped,
+                              uint64_t *spans_dropped) {
+  if (!tm) {
+    return;
+  }
+  pthread_mutex_lock(&tm->lock);
+  if (traces_dropped) {
+    *traces_dropped = tm->traces_dropped;
+  }
+  if (spans_dropped) {
+    *spans_dropped = tm->spans_dropped;
+  }
+  pthread_mutex_unlock(&tm->lock);
+}
+
 int trace_map_insert(trace_map_t *tm, const span_t *span, bool sampled) {
   if (!tm || !span) {
     return -1;
@@ -172,6 +202,11 @@ int trace_map_insert(trace_map_t *tm, const span_t *span, bool sampled) {
 
   /* Create new partial trace if not found */
   if (!pt) {
+    if (tm->max_traces > 0 && tm->count >= tm->max_traces) {
+      tm->traces_dropped++;
+      pthread_mutex_unlock(&tm->lock);
+      return -1;
+    }
     pt = partial_trace_create(span->trace_id);
     if (!pt) {
       pthread_mutex_unlock(&tm->lock);
@@ -180,6 +215,13 @@ int trace_map_insert(trace_map_t *tm, const span_t *span, bool sampled) {
     pt->next = tm->buckets[bucket];
     tm->buckets[bucket] = pt;
     tm->count++;
+  }
+
+  if (tm->max_spans_per_trace > 0 &&
+      pt->span_count >= tm->max_spans_per_trace) {
+    tm->spans_dropped++;
+    pthread_mutex_unlock(&tm->lock);
+    return -1;
   }
 
   int rc = partial_trace_add_span(pt, span, sampled);

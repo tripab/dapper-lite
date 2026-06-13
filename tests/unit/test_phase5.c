@@ -437,6 +437,185 @@ static const char *test_storage_null_args() {
 }
 
 /* ============================================================
+ * Trace Map Resource Cap Tests
+ * ============================================================ */
+
+static const char *test_trace_map_caps() {
+  trace_map_t *tm = trace_map_create(16);
+  trace_map_set_limits(tm, 2, 2);
+
+  span_t span;
+  memset(&span, 0, sizeof(span));
+  span.span_id = 1;
+  snprintf(span.name, sizeof(span.name), "op");
+
+  /* Two distinct traces fit, the third is rejected */
+  span.trace_id = 1;
+  mu_assert("trace 1 accepted", trace_map_insert(tm, &span, true) == 0);
+  span.trace_id = 2;
+  mu_assert("trace 2 accepted", trace_map_insert(tm, &span, true) == 0);
+  span.trace_id = 3;
+  mu_assert("trace 3 rejected", trace_map_insert(tm, &span, true) < 0);
+  mu_assert_eq("count capped at 2", 2UL, (unsigned long)tm->count);
+
+  /* Per-trace span cap: trace 1 already has 1 span, 1 more fits */
+  span.trace_id = 1;
+  span.span_id = 2;
+  mu_assert("span 2 accepted", trace_map_insert(tm, &span, true) == 0);
+  span.span_id = 3;
+  mu_assert("span 3 rejected", trace_map_insert(tm, &span, true) < 0);
+
+  partial_trace_t *pt = trace_map_find(tm, 1);
+  mu_assert_eq("span_count capped at 2", 2UL, (unsigned long)pt->span_count);
+
+  uint64_t traces_dropped = 0, spans_dropped = 0;
+  trace_map_get_drop_stats(tm, &traces_dropped, &spans_dropped);
+  mu_assert_eq("one trace dropped", 1UL, (unsigned long)traces_dropped);
+  mu_assert_eq("one span dropped", 1UL, (unsigned long)spans_dropped);
+
+  trace_map_destroy(tm);
+  return NULL;
+}
+
+/* ============================================================
+ * Collector Config / Hardening Tests
+ * ============================================================ */
+
+static const char *test_collector_default_config_is_safe() {
+  collector_config_t config = collector_default_config();
+  mu_assert("default bind is loopback",
+            strcmp(config.bind_addr, "127.0.0.1") == 0);
+  mu_assert("active trace cap set by default", config.max_active_traces > 0);
+  mu_assert("span cap set by default", config.max_spans_per_trace > 0);
+  return NULL;
+}
+
+static const char *test_collector_rejects_bad_config() {
+  collector_config_t config = collector_default_config();
+  config.storage_path = "/tmp/test_phase5_badcfg.bin";
+
+  config.bind_addr = "not-an-address";
+  mu_assert("invalid bind addr fails", collector_create(&config) == NULL);
+
+  config.bind_addr = "127.0.0.1";
+  config.allowed_sources = "10.0.0.1,bogus";
+  mu_assert("invalid allowlist fails", collector_create(&config) == NULL);
+
+  config.allowed_sources = ",";
+  mu_assert("empty allowlist fails", collector_create(&config) == NULL);
+
+  unlink("/tmp/test_phase5_badcfg.bin");
+  return NULL;
+}
+
+/* Poll collector stats until pred(stats) holds or the deadline passes. */
+static int wait_for_stats(collector_t *c, collector_stats_t *stats,
+                          bool (*pred)(const collector_stats_t *),
+                          int timeout_ms) {
+  for (int waited = 0; waited < timeout_ms; waited += 10) {
+    collector_get_stats(c, stats);
+    if (pred(stats)) {
+      return 0;
+    }
+    usleep(10000);
+  }
+  collector_get_stats(c, stats);
+  return pred(stats) ? 0 : -1;
+}
+
+static bool pred_one_packet(const collector_stats_t *s) {
+  return s->packets_received >= 1;
+}
+
+static bool reject_all_auth(const char *source_ip, const uint8_t *data,
+                            size_t len, void *user_data) {
+  (void)source_ip;
+  (void)data;
+  (void)len;
+  *(int *)user_data += 1;
+  return false;
+}
+
+static const char *test_collector_auth_hook_rejects() {
+  const char *storage_path = "/tmp/test_phase5_auth.bin";
+  unlink(storage_path);
+
+  int auth_calls = 0;
+  collector_config_t config = collector_default_config();
+  config.port = 19841;
+  config.storage_path = storage_path;
+  config.auth_fn = reject_all_auth;
+  config.auth_user_data = &auth_calls;
+
+  collector_t *c = collector_create(&config);
+  mu_assert("collector create should succeed", c != NULL);
+  mu_assert("collector start should succeed", collector_start(c) == 0);
+
+  int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+  struct sockaddr_in dest;
+  memset(&dest, 0, sizeof(dest));
+  dest.sin_family = AF_INET;
+  dest.sin_port = htons(19841);
+  dest.sin_addr.s_addr = htonl(0x7f000001);
+
+  uint8_t buf[SPAN_WIRE_MAX_SIZE];
+  int len = make_test_packet(buf, sizeof(buf), 4242, 1, 0, "root", true);
+  sendto(sockfd, buf, (size_t)len, 0, (struct sockaddr *)&dest, sizeof(dest));
+  close(sockfd);
+
+  collector_stats_t stats;
+  mu_assert("packet should arrive",
+            wait_for_stats(c, &stats, pred_one_packet, 2000) == 0);
+  mu_assert("auth hook was invoked", auth_calls >= 1);
+  mu_assert("packet counted unauthorized", stats.packets_unauthorized >= 1);
+  mu_assert_eq("no spans processed", 0UL,
+               (unsigned long)stats.spans_processed);
+
+  collector_stop(c);
+  collector_destroy(c);
+  unlink(storage_path);
+  return NULL;
+}
+
+static const char *test_collector_allowlist_rejects() {
+  const char *storage_path = "/tmp/test_phase5_allowlist.bin";
+  unlink(storage_path);
+
+  collector_config_t config = collector_default_config();
+  config.port = 19842;
+  config.storage_path = storage_path;
+  config.allowed_sources = "10.255.255.1"; /* Loopback is not allowed */
+
+  collector_t *c = collector_create(&config);
+  mu_assert("collector create should succeed", c != NULL);
+  mu_assert("collector start should succeed", collector_start(c) == 0);
+
+  int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+  struct sockaddr_in dest;
+  memset(&dest, 0, sizeof(dest));
+  dest.sin_family = AF_INET;
+  dest.sin_port = htons(19842);
+  dest.sin_addr.s_addr = htonl(0x7f000001);
+
+  uint8_t buf[SPAN_WIRE_MAX_SIZE];
+  int len = make_test_packet(buf, sizeof(buf), 4243, 1, 0, "root", true);
+  sendto(sockfd, buf, (size_t)len, 0, (struct sockaddr *)&dest, sizeof(dest));
+  close(sockfd);
+
+  collector_stats_t stats;
+  mu_assert("packet should arrive",
+            wait_for_stats(c, &stats, pred_one_packet, 2000) == 0);
+  mu_assert("packet counted unauthorized", stats.packets_unauthorized >= 1);
+  mu_assert_eq("no spans processed", 0UL,
+               (unsigned long)stats.spans_processed);
+
+  collector_stop(c);
+  collector_destroy(c);
+  unlink(storage_path);
+  return NULL;
+}
+
+/* ============================================================
  * Collector End-to-End Test
  * ============================================================ */
 
@@ -546,6 +725,13 @@ static const char *all_tests() {
   /* Storage */
   mu_run_test(test_storage_write_and_readback);
   mu_run_test(test_storage_null_args);
+
+  /* Resource caps and hardening */
+  mu_run_test(test_trace_map_caps);
+  mu_run_test(test_collector_default_config_is_safe);
+  mu_run_test(test_collector_rejects_bad_config);
+  mu_run_test(test_collector_auth_hook_rejects);
+  mu_run_test(test_collector_allowlist_rejects);
 
   /* End-to-end */
   mu_run_test(test_collector_end_to_end);

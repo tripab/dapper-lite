@@ -1,15 +1,20 @@
 /**
  * receiver.c - UDP socket receiver for the trace collector
  *
- * Binds a UDP socket on a configurable port and receives span
- * datagrams in a loop. Each datagram is decoded via
- * collector_decode_span() and inserted into the trace map.
+ * Binds a UDP socket on a configurable address/port and receives
+ * span datagrams in a loop. Each datagram passes source-allowlist,
+ * rate-limit, and optional authentication checks before being
+ * decoded via collector_decode_span() and inserted into the trace
+ * map.
+ *
+ * The bind address defaults to loopback (COLLECTOR_DEFAULT_BIND_ADDR);
+ * exposing the collector on other interfaces is an explicit opt-in.
  *
  * Runs in its own thread; stopped by setting the running flag
  * to false (the recv will unblock via socket timeout).
  */
 
-#include "dapper/collector.h"
+#include "internal.h"
 #include "dapper/exporter.h"
 #include <arpa/inet.h>
 #include <errno.h>
@@ -18,6 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <time.h>
 #include <unistd.h>
 
 /* ---- Internal receiver state ---- */
@@ -29,17 +35,84 @@ typedef struct receiver {
   pthread_t thread;
   _Atomic bool running;
 
+  /* Source allowlist (network byte order); 0 entries = allow all */
+  in_addr_t allowed[COLLECTOR_MAX_ALLOWED_SOURCES];
+  int allowed_count;
+
+  /* Optional packet authentication hook */
+  collector_auth_fn auth_fn;
+  void *auth_user_data;
+
+  /* Rate limiting (0 = unlimited) */
+  int max_packets_per_sec;
+
   /* Stats (updated atomically) */
   _Atomic uint64_t packets_received;
   _Atomic uint64_t packets_invalid;
+  _Atomic uint64_t packets_unauthorized;
+  _Atomic uint64_t packets_rate_limited;
   _Atomic uint64_t spans_processed;
 } receiver_t;
+
+/* ---- Allowlist parsing ---- */
+
+/**
+ * Parse a comma-separated list of IPv4 literals into r->allowed.
+ * Returns 0 on success, -1 on malformed input or too many entries.
+ */
+static int parse_allowed_sources(receiver_t *r, const char *list) {
+  r->allowed_count = 0;
+  if (!list) {
+    return 0; /* No allowlist — accept any source */
+  }
+
+  char buf[COLLECTOR_MAX_ALLOWED_SOURCES * 16];
+  if (strlen(list) >= sizeof(buf)) {
+    return -1;
+  }
+  strncpy(buf, list, sizeof(buf) - 1);
+  buf[sizeof(buf) - 1] = '\0';
+
+  char *saveptr = NULL;
+  for (char *tok = strtok_r(buf, ",", &saveptr); tok;
+       tok = strtok_r(NULL, ",", &saveptr)) {
+    if (r->allowed_count >= COLLECTOR_MAX_ALLOWED_SOURCES) {
+      return -1;
+    }
+    struct in_addr addr;
+    if (inet_pton(AF_INET, tok, &addr) != 1) {
+      return -1;
+    }
+    r->allowed[r->allowed_count++] = addr.s_addr;
+  }
+
+  /* An allowlist string that parses to zero entries (e.g. ",") is
+   * almost certainly a configuration error — reject it rather than
+   * silently accepting all sources. */
+  return r->allowed_count > 0 ? 0 : -1;
+}
+
+static bool source_allowed(const receiver_t *r, in_addr_t source) {
+  if (r->allowed_count == 0) {
+    return true;
+  }
+  for (int i = 0; i < r->allowed_count; i++) {
+    if (r->allowed[i] == source) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /* ---- Receiver thread function ---- */
 
 static void *receiver_thread_func(void *arg) {
   receiver_t *r = (receiver_t *)arg;
   uint8_t packet[COLLECTOR_UDP_MAX_PACKET];
+
+  /* Rate limiting window: packets counted in the current second */
+  time_t window_sec = 0;
+  int window_count = 0;
 
   while (atomic_load(&r->running)) {
     struct sockaddr_in sender_addr;
@@ -66,6 +139,37 @@ static void *receiver_thread_func(void *arg) {
 
     atomic_fetch_add(&r->packets_received, 1);
 
+    /* Rate limit */
+    if (r->max_packets_per_sec > 0) {
+      struct timespec now;
+      clock_gettime(CLOCK_MONOTONIC, &now);
+      if (now.tv_sec != window_sec) {
+        window_sec = now.tv_sec;
+        window_count = 0;
+      }
+      if (++window_count > r->max_packets_per_sec) {
+        atomic_fetch_add(&r->packets_rate_limited, 1);
+        continue;
+      }
+    }
+
+    /* Source allowlist */
+    if (!source_allowed(r, sender_addr.sin_addr.s_addr)) {
+      atomic_fetch_add(&r->packets_unauthorized, 1);
+      continue;
+    }
+
+    /* Optional packet authentication */
+    if (r->auth_fn) {
+      char source_ip[INET_ADDRSTRLEN];
+      if (!inet_ntop(AF_INET, &sender_addr.sin_addr, source_ip,
+                     sizeof(source_ip)) ||
+          !r->auth_fn(source_ip, packet, (size_t)n, r->auth_user_data)) {
+        atomic_fetch_add(&r->packets_unauthorized, 1);
+        continue;
+      }
+    }
+
     /* Decode the datagram */
     span_t span;
     bool sampled;
@@ -85,14 +189,38 @@ static void *receiver_thread_func(void *arg) {
 
 /* ---- Public API ---- */
 
-receiver_t *receiver_create(int port, trace_map_t *trace_map) {
-  if (port <= 0 || port > 65535 || !trace_map) {
+receiver_t *receiver_create(const collector_config_t *config,
+                            trace_map_t *trace_map) {
+  if (!config || !trace_map || config->port <= 0 || config->port > 65535) {
     return NULL;
   }
+
+  /* Resolve bind address (default: loopback) */
+  const char *bind_str =
+      config->bind_addr ? config->bind_addr : COLLECTOR_DEFAULT_BIND_ADDR;
+  struct in_addr bind_ip;
+  if (inet_pton(AF_INET, bind_str, &bind_ip) != 1) {
+    return NULL;
+  }
+
+  receiver_t *r = calloc(1, sizeof(receiver_t));
+  if (!r) {
+    return NULL;
+  }
+
+  if (parse_allowed_sources(r, config->allowed_sources) < 0) {
+    free(r);
+    return NULL;
+  }
+
+  r->auth_fn = config->auth_fn;
+  r->auth_user_data = config->auth_user_data;
+  r->max_packets_per_sec = config->max_packets_per_sec;
 
   /* Create UDP socket */
   int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
   if (sockfd < 0) {
+    free(r);
     return NULL;
   }
 
@@ -106,26 +234,21 @@ receiver_t *receiver_create(int port, trace_map_t *trace_map) {
   tv.tv_usec = 100000; /* 100ms */
   setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
-  /* Bind to port */
+  /* Bind to the configured address and port */
   struct sockaddr_in bind_addr;
   memset(&bind_addr, 0, sizeof(bind_addr));
   bind_addr.sin_family = AF_INET;
-  bind_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-  bind_addr.sin_port = htons((uint16_t)port);
+  bind_addr.sin_addr = bind_ip;
+  bind_addr.sin_port = htons((uint16_t)config->port);
 
   if (bind(sockfd, (struct sockaddr *)&bind_addr, sizeof(bind_addr)) < 0) {
     close(sockfd);
-    return NULL;
-  }
-
-  receiver_t *r = calloc(1, sizeof(receiver_t));
-  if (!r) {
-    close(sockfd);
+    free(r);
     return NULL;
   }
 
   r->sockfd = sockfd;
-  r->port = port;
+  r->port = config->port;
   r->trace_map = trace_map;
   atomic_store(&r->running, false);
 
@@ -172,18 +295,13 @@ void receiver_destroy(receiver_t *r) {
   free(r);
 }
 
-void receiver_get_stats(const receiver_t *r, uint64_t *packets_received,
-                        uint64_t *packets_invalid, uint64_t *spans_processed) {
-  if (!r) {
+void receiver_get_stats(const receiver_t *r, collector_stats_t *stats) {
+  if (!r || !stats) {
     return;
   }
-  if (packets_received) {
-    *packets_received = atomic_load(&r->packets_received);
-  }
-  if (packets_invalid) {
-    *packets_invalid = atomic_load(&r->packets_invalid);
-  }
-  if (spans_processed) {
-    *spans_processed = atomic_load(&r->spans_processed);
-  }
+  stats->packets_received = atomic_load(&r->packets_received);
+  stats->packets_invalid = atomic_load(&r->packets_invalid);
+  stats->packets_unauthorized = atomic_load(&r->packets_unauthorized);
+  stats->packets_rate_limited = atomic_load(&r->packets_rate_limited);
+  stats->spans_processed = atomic_load(&r->spans_processed);
 }

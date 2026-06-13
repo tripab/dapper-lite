@@ -26,12 +26,21 @@
  * Configuration
  * ============================================================ */
 
+#define COLLECTOR_DEFAULT_BIND_ADDR "127.0.0.1"
 #define COLLECTOR_DEFAULT_PORT 7831
 #define COLLECTOR_DEFAULT_TIMEOUT_SEC 5
 #define COLLECTOR_DEFAULT_FLUSH_COUNT 100
 #define COLLECTOR_DEFAULT_FLUSH_INTERVAL_SEC 1
 #define COLLECTOR_UDP_MAX_PACKET 512
 #define TRACE_MAP_DEFAULT_BUCKETS 1024
+
+/* Resource caps (0 = unlimited) */
+#define COLLECTOR_DEFAULT_MAX_ACTIVE_TRACES 65536
+#define COLLECTOR_DEFAULT_MAX_SPANS_PER_TRACE 4096
+#define COLLECTOR_DEFAULT_MAX_PACKETS_PER_SEC 0
+
+/* Maximum number of addresses in a source allowlist */
+#define COLLECTOR_MAX_ALLOWED_SOURCES 16
 
 /* ============================================================
  * Protocol Decode
@@ -109,6 +118,14 @@ typedef struct {
   size_t num_buckets;
   size_t count; /* Number of active partial traces */
   pthread_mutex_t lock;
+
+  /* Resource caps (0 = unlimited), see trace_map_set_limits() */
+  size_t max_traces;
+  int max_spans_per_trace;
+
+  /* Drop counters (protected by lock) */
+  uint64_t traces_dropped; /* Spans for new traces rejected at capacity */
+  uint64_t spans_dropped;  /* Spans rejected by the per-trace cap */
 } trace_map_t;
 
 /**
@@ -123,12 +140,33 @@ trace_map_t *trace_map_create(size_t num_buckets);
 void trace_map_destroy(trace_map_t *tm);
 
 /**
+ * Set resource caps on the trace map (0 = unlimited).
+ *
+ * max_traces: Maximum number of active partial traces. Spans for
+ *             unseen trace IDs are dropped once the map is full.
+ * max_spans_per_trace: Maximum spans accumulated per trace; excess
+ *             spans are dropped.
+ *
+ * Drops are counted in tm->traces_dropped / tm->spans_dropped
+ * (read them via trace_map_get_drop_stats()).
+ */
+void trace_map_set_limits(trace_map_t *tm, size_t max_traces,
+                          int max_spans_per_trace);
+
+/**
+ * Read the drop counters (thread-safe).
+ */
+void trace_map_get_drop_stats(trace_map_t *tm, uint64_t *traces_dropped,
+                              uint64_t *spans_dropped);
+
+/**
  * Insert a span into the trace map. If no partial trace exists
  * for this trace_id, one is created.
  *
  * Thread-safe (acquires internal lock).
  *
- * Returns: 0 on success, -1 on error.
+ * Returns: 0 on success, -1 on error or when the span is dropped
+ *          because a resource cap was reached.
  */
 int trace_map_insert(trace_map_t *tm, const span_t *span, bool sampled);
 
@@ -213,7 +251,11 @@ void storage_close(trace_storage_t *ts);
 typedef struct {
   uint64_t packets_received;
   uint64_t packets_invalid;
+  uint64_t packets_unauthorized; /* Rejected by allowlist or auth hook */
+  uint64_t packets_rate_limited; /* Dropped by max_packets_per_sec */
   uint64_t spans_processed;
+  uint64_t spans_dropped;  /* Dropped by per-trace span cap */
+  uint64_t traces_dropped; /* New traces rejected at max_active_traces */
   uint64_t traces_completed;
   uint64_t traces_timed_out;
   uint64_t storage_writes;
@@ -224,13 +266,46 @@ typedef struct {
  * Collector Daemon
  * ============================================================ */
 
+/**
+ * Optional datagram authentication hook.
+ *
+ * Called for every datagram that passes the source allowlist,
+ * before decoding. Return true to accept, false to reject.
+ *
+ * source_ip: Dotted-quad sender address.
+ * data/len:  Raw datagram bytes (e.g. for HMAC verification).
+ * user_data: Opaque pointer from collector_config_t.auth_user_data.
+ */
+typedef bool (*collector_auth_fn)(const char *source_ip, const uint8_t *data,
+                                  size_t len, void *user_data);
+
 typedef struct {
+  /* Network: defaults to loopback. Binding non-loopback addresses
+   * (e.g. "0.0.0.0") is opt-in and should be combined with
+   * allowed_sources and/or auth_fn — span datagrams are otherwise
+   * unauthenticated. */
+  const char *bind_addr;
   int port;
+
+  /* Source allowlist: comma-separated IPv4 literals
+   * (e.g. "127.0.0.1,10.0.0.5"); NULL accepts any source. */
+  const char *allowed_sources;
+
+  /* Optional packet authentication hook (NULL = accept). */
+  collector_auth_fn auth_fn;
+  void *auth_user_data;
+
+  /* Assembly/flush behavior */
   int timeout_sec;
-  int flush_count;
+  int flush_count; /* Max traces flushed per batch */
   int flush_interval_sec;
   size_t map_buckets;
   const char *storage_path;
+
+  /* Resource caps (0 = unlimited) */
+  size_t max_active_traces;
+  int max_spans_per_trace;
+  int max_packets_per_sec;
 } collector_config_t;
 
 /**

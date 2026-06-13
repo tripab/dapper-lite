@@ -750,13 +750,20 @@ static const char *test_collector_rejects_invalid_udp() {
  * Collector End-to-End Test
  * ============================================================ */
 
+static bool pred_three_spans(const collector_stats_t *s) {
+  return s->spans_processed >= 3;
+}
+
 static const char *test_collector_end_to_end() {
-  const char *storage_path = "/tmp/test_phase5_e2e.bin";
+  char storage_path[] = "/tmp/test_phase5_e2e_XXXXXX";
+  int sfd = mkstemp(storage_path);
+  mu_assert("mkstemp", sfd >= 0);
+  close(sfd);
   unlink(storage_path);
 
-  /* Use a high port to avoid conflicts */
+  /* Ephemeral port avoids collisions with parallel runs. */
   collector_config_t config = collector_default_config();
-  config.port = 19831;
+  config.port = 0;
   config.timeout_sec = 1;
   config.flush_interval_sec = 1;
   config.storage_path = storage_path;
@@ -766,6 +773,8 @@ static const char *test_collector_end_to_end() {
 
   int rc = collector_start(c);
   mu_assert("collector start should succeed", rc == 0);
+  int port = collector_port(c);
+  mu_assert("ephemeral port", port > 0);
 
   /* Give collector time to bind */
   usleep(50000);
@@ -777,7 +786,7 @@ static const char *test_collector_end_to_end() {
   struct sockaddr_in dest;
   memset(&dest, 0, sizeof(dest));
   dest.sin_family = AF_INET;
-  dest.sin_port = htons(19831);
+  dest.sin_port = htons((uint16_t)port);
   dest.sin_addr.s_addr = htonl(0x7f000001); /* 127.0.0.1 */
 
   /* Send 3 spans for 1 trace */
@@ -798,14 +807,11 @@ static const char *test_collector_end_to_end() {
 
   close(sockfd);
 
-  /* Wait for flush (timeout=1s + flush_interval=1s + margin) */
-  sleep(3);
-
-  /* Check stats */
+  /* Poll until all 3 spans are ingested (deadline, not a fixed sleep). */
   collector_stats_t stats;
-  collector_get_stats(c, &stats);
+  mu_assert("3 spans processed",
+            wait_for_stats(c, &stats, pred_three_spans, 4000) == 0);
   mu_assert("at least 3 packets received", stats.packets_received >= 3);
-  mu_assert("at least 3 spans processed", stats.spans_processed >= 3);
 
   collector_stop(c);
 

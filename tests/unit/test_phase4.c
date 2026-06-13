@@ -29,6 +29,22 @@
 int tests_run = 0;
 int tests_failed = 0;
 
+/* Poll exporter stats until at least `target` spans are exported or the
+ * deadline (ms) passes. Returns the exported count. */
+static uint64_t wait_for_export(exporter_t *exp, uint64_t target,
+                                int timeout_ms) {
+  exporter_stats_t st;
+  for (int waited = 0; waited < timeout_ms; waited += 5) {
+    exporter_get_stats(exp, &st);
+    if (st.spans_exported >= target) {
+      return st.spans_exported;
+    }
+    usleep(5000);
+  }
+  exporter_get_stats(exp, &st);
+  return st.spans_exported;
+}
+
 /* ========== Serialization Tests ========== */
 
 static const char *test_serialize_roundtrip() {
@@ -321,8 +337,6 @@ static const char *test_file_sink_write_read() {
 
 /* ========== UDP Sink Tests ========== */
 
-#define UDP_TEST_PORT 19877
-
 static uint8_t g_udp_recv_buf[SPAN_WIRE_MAX_SIZE];
 static size_t g_udp_recv_len;
 
@@ -347,16 +361,22 @@ static const char *test_udp_sink_send_receive() {
   memset(&addr, 0, sizeof(addr));
   addr.sin_family = AF_INET;
   addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-  addr.sin_port = htons(UDP_TEST_PORT);
+  addr.sin_port = htons(0); /* ephemeral: OS picks a free port */
   mu_assert("bind should succeed",
             bind(recv_sock, (struct sockaddr *)&addr, sizeof(addr)) == 0);
+
+  /* Read back the assigned port. */
+  socklen_t addr_len = sizeof(addr);
+  mu_assert("getsockname",
+            getsockname(recv_sock, (struct sockaddr *)&addr, &addr_len) == 0);
+  int port = ntohs(addr.sin_port);
 
   pthread_t recv_thread;
   pthread_create(&recv_thread, NULL, udp_receiver, &recv_sock);
   usleep(10000);
 
   /* Send via UDP sink */
-  sink_t *sink = sink_create_udp("127.0.0.1", UDP_TEST_PORT);
+  sink_t *sink = sink_create_udp("127.0.0.1", port);
   mu_assert("udp sink create should succeed", sink != NULL);
 
   trace_t *trace = trace_create();
@@ -408,8 +428,9 @@ static const char *test_exporter_end_to_end() {
     exporter_submit(exp, s);
   }
 
-  /* Wait for export */
-  usleep(200000);
+  /* Wait for export (deadline poll, not a fixed sleep) */
+  mu_assert_eq("all exported", 50UL,
+               (unsigned long)wait_for_export(exp, 50, 2000));
 
   exporter_stats_t stats;
   exporter_get_stats(exp, &stats);
@@ -457,7 +478,8 @@ static const char *test_exporter_reflects_sampling() {
   mu_assert("span inherits unsampled decision", s->sampled == false);
   exporter_submit(exp, s);
 
-  usleep(200000);
+  mu_assert_eq("span exported", 1UL,
+               (unsigned long)wait_for_export(exp, 1, 2000));
   exporter_destroy(exp);
 
   FILE *fp = fopen(path, "rb");

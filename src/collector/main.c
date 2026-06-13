@@ -11,6 +11,7 @@
  * flushes all remaining traces, closes storage.
  */
 
+#include "../core/clock.h" /* dapper_sleep_us */
 #include "internal.h"
 #include <signal.h>
 #include <stdatomic.h>
@@ -83,7 +84,7 @@ static void *flush_thread_func(void *arg) {
   collector_t *c = (collector_t *)arg;
 
   while (atomic_load(&c->running)) {
-    usleep((useconds_t)(c->config.flush_interval_sec * 1000000));
+    dapper_sleep_us((uint64_t)c->config.flush_interval_sec * 1000000ULL);
     if (atomic_load(&c->running)) {
       flush_traces(c, c->config.timeout_sec);
     }

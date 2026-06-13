@@ -445,8 +445,8 @@ help:
 
 # Dependencies (automatic header dependency tracking would be better in production)
 $(OBJ_DIR)/core/trace.o: src/core/trace.c include/dapper/trace.h include/dapper/types.h include/dapper/span.h
-$(OBJ_DIR)/core/span.o: src/core/span.c include/dapper/span.h include/dapper/types.h include/dapper/trace.h
-$(OBJ_DIR)/core/clock.o: src/core/clock.c
+$(OBJ_DIR)/core/span.o: src/core/span.c src/core/clock.h include/dapper/span.h include/dapper/types.h include/dapper/trace.h
+$(OBJ_DIR)/core/clock.o: src/core/clock.c src/core/clock.h
 $(OBJ_DIR)/core/thread_local.o: src/core/thread_local.c include/dapper/span.h include/dapper/types.h
 $(OBJ_DIR)/core/context.o: src/core/context.c include/dapper/context.h include/dapper/byteorder.h include/dapper/span.h include/dapper/trace.h include/dapper/types.h
 
@@ -463,13 +463,13 @@ $(OBJ_DIR)/wire/serialize.o: src/wire/serialize.c include/dapper/wire.h include/
 $(OBJ_DIR)/export/ring_buffer.o: src/export/ring_buffer.c src/export/export_internal.h include/dapper/exporter.h include/dapper/wire.h include/dapper/types.h include/dapper/span.h
 $(OBJ_DIR)/export/file_sink.o: src/export/file_sink.c src/export/export_internal.h include/dapper/exporter.h
 $(OBJ_DIR)/export/udp_sink.o: src/export/udp_sink.c src/export/export_internal.h include/dapper/exporter.h
-$(OBJ_DIR)/export/exporter_thread.o: src/export/exporter_thread.c src/export/export_internal.h include/dapper/exporter.h
+$(OBJ_DIR)/export/exporter_thread.o: src/export/exporter_thread.c src/core/clock.h src/export/export_internal.h include/dapper/exporter.h
 
 $(OBJ_DIR)/collector/protocol.o: src/collector/protocol.c include/dapper/collector.h include/dapper/wire.h include/dapper/types.h
 $(OBJ_DIR)/collector/receiver.o: src/collector/receiver.c src/collector/internal.h include/dapper/collector.h include/dapper/wire.h include/dapper/types.h
 $(OBJ_DIR)/collector/assembler.o: src/collector/assembler.c src/collector/internal.h include/dapper/collector.h include/dapper/wire.h include/dapper/types.h
 $(OBJ_DIR)/collector/storage.o: src/collector/storage.c src/collector/internal.h include/dapper/collector.h include/dapper/byteorder.h include/dapper/wire.h include/dapper/types.h
-$(OBJ_DIR)/collector/main.o: src/collector/main.c src/collector/internal.h include/dapper/collector.h include/dapper/types.h
+$(OBJ_DIR)/collector/main.o: src/collector/main.c src/core/clock.h src/collector/internal.h include/dapper/collector.h include/dapper/types.h
 
 $(TEST5_OBJ): $(TEST5_SRC) tests/unit/minunit.h include/dapper/collector.h include/dapper/exporter.h include/dapper/trace.h include/dapper/span.h include/dapper/types.h
 

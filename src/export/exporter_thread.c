@@ -11,11 +11,11 @@
  */
 
 #define _POSIX_C_SOURCE 200809L
+#include "../core/clock.h" /* dapper_sleep_us */
 #include "export_internal.h"
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdlib.h>
-#include <unistd.h>
 
 struct exporter {
   ring_buffer_t *ring_buffer;
@@ -39,7 +39,7 @@ static void *exporter_thread_func(void *arg) {
                                   memory_order_relaxed);
       }
     } else {
-      usleep(100); /* Sleep 100us when buffer is empty */
+      dapper_sleep_us(100); /* Sleep 100us when buffer is empty */
     }
   }
 

@@ -3,10 +3,10 @@
  */
 
 #define _POSIX_C_SOURCE 200809L
+#include "clock.h"
 #include <errno.h>
 #include <stdint.h>
 #include <time.h>
-#include <unistd.h>
 
 /**
  * Get current monotonic timestamp in nanoseconds
@@ -24,11 +24,10 @@ uint64_t clock_monotonic_ns(void) {
   return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
 }
 
-int usleep(useconds_t usec) {
-  struct timespec ts = {.tv_sec = usec / 1000000,
-                        .tv_nsec = (usec % 1000000) * 1000};
+void dapper_sleep_us(uint64_t usec) {
+  struct timespec ts = {.tv_sec = (time_t)(usec / 1000000),
+                        .tv_nsec = (long)((usec % 1000000) * 1000)};
   while (nanosleep(&ts, &ts) == -1 && errno == EINTR) {
-    // Restart if interrupted by a signal
+    /* Restart if interrupted by a signal */
   }
-  return 0;
 }

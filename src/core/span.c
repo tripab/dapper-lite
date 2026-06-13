@@ -3,15 +3,13 @@
  */
 
 #define _POSIX_C_SOURCE 200809L
+#include "clock.h"
 #include "dapper/span.h"
 #include "dapper/trace.h"
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-
-/* External clock function */
-extern uint64_t clock_monotonic_ns(void);
 
 /* Global span ID counter (atomic for thread safety) */
 static _Atomic uint64_t g_next_span_id = 1;

@@ -19,6 +19,24 @@
  * Storage Reader / Trace Query
  * ============================================================ */
 
+/* Upper bound on spans in a single stored trace. Records claiming more
+ * than this are treated as corrupt rather than triggering a huge
+ * allocation. */
+#define STORAGE_MAX_SPANS_PER_TRACE (1u << 20)
+
+/**
+ * Why the storage reader stopped.
+ *
+ * Distinguishes a clean end-of-file from a corrupt/truncated log so
+ * that callers do not silently treat data loss as normal termination.
+ */
+typedef enum {
+  TRACE_READ_OK = 0,     /* A trace was read successfully */
+  TRACE_READ_EOF,        /* Clean end of file at a record boundary */
+  TRACE_READ_CORRUPT,    /* Malformed, truncated, or impossible record */
+  TRACE_READ_IO_ERROR    /* Underlying read error */
+} trace_read_status_t;
+
 /**
  * Load all traces from a storage file.
  *
@@ -32,8 +50,23 @@
  * Returns: Array of trace_t pointers (caller owns and must free each
  *          with trace_destroy(), then free the array itself).
  *          Returns NULL on error (out_count set to 0).
+ *
+ * If the log is corrupt or truncated, the valid prefix of traces is
+ * returned and a diagnostic is written to stderr. Use
+ * query_load_all_status() to observe the terminal read status.
  */
 trace_t **query_load_all(const char *storage_path, int *out_count);
+
+/**
+ * Like query_load_all(), but also reports why reading stopped.
+ *
+ * out_status (may be NULL) is set to TRACE_READ_EOF for a clean read,
+ * or TRACE_READ_CORRUPT / TRACE_READ_IO_ERROR when the log could not
+ * be fully parsed. The valid prefix of traces is returned in either
+ * case.
+ */
+trace_t **query_load_all_status(const char *storage_path, int *out_count,
+                                trace_read_status_t *out_status);
 
 /**
  * Load a single trace by its trace ID.

@@ -158,6 +158,31 @@ static int write_test_storage_multi(const char *path) {
   return 0;
 }
 
+/* Append raw bytes to a file. */
+static int append_bytes(const char *path, const void *data, size_t len) {
+  FILE *fp = fopen(path, "ab");
+  if (!fp) {
+    return -1;
+  }
+  size_t n = fwrite(data, 1, len, fp);
+  fclose(fp);
+  return n == len ? 0 : -1;
+}
+
+/* Write a big-endian trace header (trace_id + num_spans) to a fresh file. */
+static int write_trace_header(const char *path, uint64_t trace_id,
+                              uint32_t num_spans) {
+  unlink(path);
+  uint8_t hdr[12];
+  for (int i = 0; i < 8; i++) {
+    hdr[i] = (uint8_t)(trace_id >> (56 - 8 * i));
+  }
+  for (int i = 0; i < 4; i++) {
+    hdr[8 + i] = (uint8_t)(num_spans >> (24 - 8 * i));
+  }
+  return append_bytes(path, hdr, sizeof(hdr));
+}
+
 /* ============================================================
  * Storage Reader / Query Tests
  * ============================================================ */
@@ -299,6 +324,139 @@ static const char *test_query_null_args() {
   mu_assert("null count returns NULL",
             query_load_all("/nonexistent", NULL) == NULL);
   mu_assert("null path by_id returns NULL", query_trace_by_id(NULL, 1) == NULL);
+  return NULL;
+}
+
+/* ============================================================
+ * Corrupt / Truncated Storage Tests (B4)
+ * ============================================================ */
+
+static const char *test_load_clean_reports_eof() {
+  const char *path = "/tmp/test_phase6_clean_eof.bin";
+  mu_assert("write test storage", write_test_storage_multi(path) == 0);
+
+  int count = 0;
+  trace_read_status_t status = TRACE_READ_OK;
+  trace_t **traces = query_load_all_status(path, &count, &status);
+  mu_assert("clean load succeeds", traces != NULL);
+  mu_assert_eq("loaded 3 traces", 3UL, (unsigned long)count);
+  mu_assert("status is EOF", status == TRACE_READ_EOF);
+
+  for (int i = 0; i < count; i++) {
+    trace_destroy(traces[i]);
+  }
+  free(traces);
+  unlink(path);
+  return NULL;
+}
+
+static const char *test_load_truncated_header() {
+  /* trace_id present but num_spans missing -> corrupt, not clean EOF. */
+  const char *path = "/tmp/test_phase6_trunc_hdr.bin";
+  unlink(path);
+  uint8_t tid[8] = {0, 0, 0, 0, 0, 0, 0, 5};
+  mu_assert("write partial header", append_bytes(path, tid, sizeof(tid)) == 0);
+
+  int count = -1;
+  trace_read_status_t status = TRACE_READ_OK;
+  trace_t **traces = query_load_all_status(path, &count, &status);
+  mu_assert("no traces loaded", traces == NULL);
+  mu_assert_eq("count is 0", 0UL, (unsigned long)count);
+  mu_assert("status is corrupt", status == TRACE_READ_CORRUPT);
+
+  unlink(path);
+  return NULL;
+}
+
+static const char *test_load_zero_spans() {
+  const char *path = "/tmp/test_phase6_zero_spans.bin";
+  mu_assert("write zero-span header", write_trace_header(path, 7, 0) == 0);
+
+  int count = -1;
+  trace_read_status_t status = TRACE_READ_OK;
+  trace_t **traces = query_load_all_status(path, &count, &status);
+  mu_assert("no traces loaded", traces == NULL);
+  mu_assert("status is corrupt", status == TRACE_READ_CORRUPT);
+
+  unlink(path);
+  return NULL;
+}
+
+static const char *test_load_overlarge_num_spans() {
+  /* num_spans beyond STORAGE_MAX_SPANS_PER_TRACE must not allocate. */
+  const char *path = "/tmp/test_phase6_huge_spans.bin";
+  mu_assert("write huge-span header",
+            write_trace_header(path, 7, 0xFFFFFFFFu) == 0);
+
+  int count = -1;
+  trace_read_status_t status = TRACE_READ_OK;
+  trace_t **traces = query_load_all_status(path, &count, &status);
+  mu_assert("no traces loaded", traces == NULL);
+  mu_assert("status is corrupt", status == TRACE_READ_CORRUPT);
+
+  unlink(path);
+  return NULL;
+}
+
+static const char *test_load_overlarge_span_len() {
+  /* Valid header claiming 1 span, then an absurd span length prefix. */
+  const char *path = "/tmp/test_phase6_huge_slen.bin";
+  mu_assert("write header", write_trace_header(path, 7, 1) == 0);
+  uint8_t slen[4] = {0xFF, 0xFF, 0xFF, 0xFF};
+  mu_assert("write bad span len", append_bytes(path, slen, sizeof(slen)) == 0);
+
+  int count = -1;
+  trace_read_status_t status = TRACE_READ_OK;
+  trace_t **traces = query_load_all_status(path, &count, &status);
+  mu_assert("no traces loaded", traces == NULL);
+  mu_assert("status is corrupt", status == TRACE_READ_CORRUPT);
+
+  unlink(path);
+  return NULL;
+}
+
+static const char *test_load_truncated_payload() {
+  /* Span length says 48 bytes but only 10 are present. */
+  const char *path = "/tmp/test_phase6_trunc_payload.bin";
+  mu_assert("write header", write_trace_header(path, 7, 1) == 0);
+  uint8_t slen[4] = {0, 0, 0, 48};
+  mu_assert("write span len", append_bytes(path, slen, sizeof(slen)) == 0);
+  uint8_t partial[10] = {0};
+  mu_assert("write partial payload",
+            append_bytes(path, partial, sizeof(partial)) == 0);
+
+  int count = -1;
+  trace_read_status_t status = TRACE_READ_OK;
+  trace_t **traces = query_load_all_status(path, &count, &status);
+  mu_assert("no traces loaded", traces == NULL);
+  mu_assert("status is corrupt", status == TRACE_READ_CORRUPT);
+
+  unlink(path);
+  return NULL;
+}
+
+static const char *test_load_valid_prefix_then_corrupt() {
+  /* A valid trace followed by a truncated record: the valid prefix is
+   * returned and corruption is reported rather than silently dropped. */
+  const char *path = "/tmp/test_phase6_prefix_corrupt.bin";
+  mu_assert("write test storage", write_test_storage_single(path) == 0);
+  uint8_t tid[8] = {0, 0, 0, 0, 0, 0, 0, 9};
+  mu_assert("append partial record",
+            append_bytes(path, tid, sizeof(tid)) == 0);
+
+  int count = 0;
+  trace_read_status_t status = TRACE_READ_OK;
+  trace_t **traces = query_load_all_status(path, &count, &status);
+  mu_assert("valid prefix returned", traces != NULL);
+  mu_assert_eq("one valid trace", 1UL, (unsigned long)count);
+  mu_assert_eq("trace id is 1000", 1000UL, (unsigned long)traces[0]->id);
+  mu_assert("status is corrupt", status == TRACE_READ_CORRUPT);
+
+  for (int i = 0; i < count; i++) {
+    trace_destroy(traces[i]);
+  }
+  free(traces);
+  unlink(path);
   return NULL;
 }
 
@@ -498,6 +656,15 @@ static const char *all_tests() {
   mu_run_test(test_query_slowest);
   mu_run_test(test_query_slowest_nonpositive_limit);
   mu_run_test(test_query_null_args);
+
+  /* Corrupt / truncated storage */
+  mu_run_test(test_load_clean_reports_eof);
+  mu_run_test(test_load_truncated_header);
+  mu_run_test(test_load_zero_spans);
+  mu_run_test(test_load_overlarge_num_spans);
+  mu_run_test(test_load_overlarge_span_len);
+  mu_run_test(test_load_truncated_payload);
+  mu_run_test(test_load_valid_prefix_then_corrupt);
 
   /* Critical path */
   mu_run_test(test_critical_path_simple);

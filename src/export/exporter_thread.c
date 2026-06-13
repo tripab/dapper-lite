@@ -11,7 +11,7 @@
  */
 
 #define _POSIX_C_SOURCE 200809L
-#include "dapper/exporter.h"
+#include "export_internal.h"
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdlib.h>

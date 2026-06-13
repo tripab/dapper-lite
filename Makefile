@@ -4,6 +4,8 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -Werror -std=c11 -O2 -g
 INCLUDES = -Iinclude
+# White-box tests may reach into private module headers under src/.
+TEST_INCLUDES = -Iinclude -Isrc
 LIBS = -lpthread -lm
 
 # Build directory structure
@@ -171,7 +173,7 @@ $(OBJ_DIR)/examples/%.o: examples/%.c | dirs
 
 $(OBJ_DIR)/tests/%.o: tests/%.c | dirs
 	@echo "Compiling $<"
-	@$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+	@$(CC) $(CFLAGS) $(TEST_INCLUDES) -c $< -o $@
 
 $(OBJ_DIR)/benchmarks/%.o: benchmarks/%.c | dirs
 	@echo "Compiling $<"
@@ -458,15 +460,15 @@ $(TEST2_OBJ): $(TEST2_SRC) tests/unit/minunit.h include/dapper/trace.h include/d
 $(TEST4_OBJ): $(TEST4_SRC) tests/unit/minunit.h include/dapper/exporter.h include/dapper/trace.h include/dapper/span.h include/dapper/types.h
 
 $(OBJ_DIR)/wire/serialize.o: src/wire/serialize.c include/dapper/wire.h include/dapper/types.h
-$(OBJ_DIR)/export/ring_buffer.o: src/export/ring_buffer.c include/dapper/exporter.h include/dapper/wire.h include/dapper/types.h include/dapper/span.h
-$(OBJ_DIR)/export/file_sink.o: src/export/file_sink.c include/dapper/exporter.h
-$(OBJ_DIR)/export/udp_sink.o: src/export/udp_sink.c include/dapper/exporter.h
-$(OBJ_DIR)/export/exporter_thread.o: src/export/exporter_thread.c include/dapper/exporter.h
+$(OBJ_DIR)/export/ring_buffer.o: src/export/ring_buffer.c src/export/export_internal.h include/dapper/exporter.h include/dapper/wire.h include/dapper/types.h include/dapper/span.h
+$(OBJ_DIR)/export/file_sink.o: src/export/file_sink.c src/export/export_internal.h include/dapper/exporter.h
+$(OBJ_DIR)/export/udp_sink.o: src/export/udp_sink.c src/export/export_internal.h include/dapper/exporter.h
+$(OBJ_DIR)/export/exporter_thread.o: src/export/exporter_thread.c src/export/export_internal.h include/dapper/exporter.h
 
 $(OBJ_DIR)/collector/protocol.o: src/collector/protocol.c include/dapper/collector.h include/dapper/wire.h include/dapper/types.h
 $(OBJ_DIR)/collector/receiver.o: src/collector/receiver.c src/collector/internal.h include/dapper/collector.h include/dapper/wire.h include/dapper/types.h
-$(OBJ_DIR)/collector/assembler.o: src/collector/assembler.c include/dapper/collector.h include/dapper/wire.h include/dapper/types.h
-$(OBJ_DIR)/collector/storage.o: src/collector/storage.c include/dapper/collector.h include/dapper/wire.h include/dapper/types.h
+$(OBJ_DIR)/collector/assembler.o: src/collector/assembler.c src/collector/internal.h include/dapper/collector.h include/dapper/wire.h include/dapper/types.h
+$(OBJ_DIR)/collector/storage.o: src/collector/storage.c src/collector/internal.h include/dapper/collector.h include/dapper/wire.h include/dapper/types.h
 $(OBJ_DIR)/collector/main.o: src/collector/main.c src/collector/internal.h include/dapper/collector.h include/dapper/types.h
 
 $(TEST5_OBJ): $(TEST5_SRC) tests/unit/minunit.h include/dapper/collector.h include/dapper/exporter.h include/dapper/trace.h include/dapper/span.h include/dapper/types.h

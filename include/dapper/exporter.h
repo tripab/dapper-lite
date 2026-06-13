@@ -28,13 +28,9 @@
 #define RING_BUFFER_ENTRY_SIZE SPAN_WIRE_MAX_SIZE
 #define RING_BUFFER_DEFAULT_CAPACITY 4096
 
-typedef struct ring_buffer {
-  uint8_t *data;
-  size_t entry_size;
-  size_t capacity;
-  _Atomic size_t write_index;
-  _Atomic size_t read_index;
-} ring_buffer_t;
+/* Opaque ring buffer handle; layout is private to the export module
+ * (see src/export/export_internal.h). */
+typedef struct ring_buffer ring_buffer_t;
 
 /**
  * Create a ring buffer with the given capacity.
@@ -87,46 +83,8 @@ bool ring_buffer_is_empty(const ring_buffer_t *rb);
  */
 bool ring_buffer_is_full(const ring_buffer_t *rb);
 
-/* ============================================================
- * Sink Interface
- * ============================================================ */
-
-typedef enum { SINK_TYPE_FILE, SINK_TYPE_UDP } sink_type_t;
-
-typedef struct sink {
-  sink_type_t type;
-  void *impl;
-
-  /* Write serialized span bytes to this sink. Returns 0 on success. */
-  int (*write)(struct sink *sink, const uint8_t *data, size_t len);
-
-  /* Close and release sink resources. */
-  void (*close)(struct sink *sink);
-} sink_t;
-
-/**
- * Create a file sink for debug output.
- *
- * filepath: Path to output file (will be created/appended to)
- *
- * Returns: Sink pointer, or NULL on failure.
- */
-sink_t *sink_create_file(const char *filepath);
-
-/**
- * Create a UDP sink for network export.
- *
- * host: Collector hostname or IP
- * port: Collector UDP port
- *
- * Returns: Sink pointer, or NULL on failure.
- */
-sink_t *sink_create_udp(const char *host, int port);
-
-/**
- * Destroy a sink (calls close, then frees).
- */
-void sink_destroy(sink_t *sink);
+/* The sink interface (file/UDP transports) is an export-layer
+ * implementation detail; see src/export/export_internal.h. */
 
 /* ============================================================
  * Exporter (Background Thread + Ring Buffer + Sink)

@@ -67,39 +67,13 @@ int collector_decode_span(const uint8_t *data, size_t len, span_t *span,
  * Partial Trace (in-memory assembly)
  * ============================================================ */
 
-/**
- * A collector-owned list node wrapping one received span.
- *
- * The collector keeps its own list of spans rather than reusing the
- * span's hierarchy pointers (next_sibling), so the in-process
- * hierarchy fields keep a single meaning.
- */
-typedef struct collected_span {
-  span_t span;
-  struct collected_span *next;
-} collected_span_t;
-
-/**
- * A partially-assembled trace collecting spans as they arrive.
- * Stored in the trace_map hash table, keyed by trace_id.
- */
-typedef struct partial_trace {
-  trace_id_t trace_id;
-
-  /* Linked list of received spans (newest first) */
-  collected_span_t *spans;
-  int span_count;
-
-  /* Sampling decision from first span received */
-  bool sampled;
-
-  /* Completion tracking */
-  bool has_root;               /* Root span (parent_span_id==0) received? */
-  struct timespec last_update; /* Clock time of last span arrival */
-
-  /* Hash table chaining */
-  struct partial_trace *next;
-} partial_trace_t;
+/* Opaque handles. The white-box layout of the collector's partial
+ * trace, list node, and trace map lives in src/collector/internal.h
+ * and is private to the collector module (and selected white-box
+ * tests compiled with -Isrc). */
+typedef struct collected_span collected_span_t;
+typedef struct partial_trace partial_trace_t;
+typedef struct trace_map trace_map_t;
 
 /**
  * Create a new partial trace for the given trace_id.
@@ -124,21 +98,6 @@ void partial_trace_destroy(partial_trace_t *pt);
 /* ============================================================
  * Trace Map (hash table: trace_id -> partial_trace)
  * ============================================================ */
-
-typedef struct {
-  partial_trace_t **buckets;
-  size_t num_buckets;
-  size_t count; /* Number of active partial traces */
-  pthread_mutex_t lock;
-
-  /* Resource caps (0 = unlimited), see trace_map_set_limits() */
-  size_t max_traces;
-  int max_spans_per_trace;
-
-  /* Drop counters (protected by lock) */
-  uint64_t traces_dropped; /* Spans for new traces rejected at capacity */
-  uint64_t spans_dropped;  /* Spans rejected by the per-trace cap */
-} trace_map_t;
 
 /**
  * Create a trace map with the given number of buckets.

@@ -11,6 +11,7 @@
  */
 
 #define _POSIX_C_SOURCE 200809L
+#include "collector/internal.h" /* white-box: partial_trace/trace_map layout */
 #include "dapper/collector.h"
 #include "dapper/exporter.h"
 #include "dapper/span.h"

@@ -19,7 +19,7 @@
  * valid bytes are in each entry without parsing the wire format.
  */
 
-#include "dapper/exporter.h"
+#include "export_internal.h"
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>

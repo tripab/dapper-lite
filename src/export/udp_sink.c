@@ -9,7 +9,7 @@
  * acceptable per the Dapper design (UDP loss is tolerable).
  */
 
-#include "dapper/exporter.h"
+#include "export_internal.h"
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <stdlib.h>

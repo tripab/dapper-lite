@@ -15,6 +15,7 @@
 #include "dapper/exporter.h"
 #include "dapper/span.h"
 #include "dapper/trace.h"
+#include "export/export_internal.h" /* white-box: sink_t internals */
 #include "minunit.h"
 #include <arpa/inet.h>
 #include <pthread.h>

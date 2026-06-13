@@ -9,7 +9,7 @@
  * File is opened in append mode so multiple exporters can write safely.
  */
 
-#include "dapper/exporter.h"
+#include "export_internal.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

@@ -12,7 +12,7 @@
  * storage_flush() forces data to disk.
  */
 
-#include "dapper/collector.h"
+#include "internal.h"
 #include "dapper/wire.h"
 #include <arpa/inet.h>
 #include <stdio.h>

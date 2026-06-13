@@ -12,9 +12,34 @@ OBJ_DIR = $(BUILD_DIR)/obj
 BIN_DIR = $(BUILD_DIR)/bin
 TEST_DIR = $(BUILD_DIR)/test
 
-# Source files
-CORE_SRCS = src/core/trace.c src/core/span.c src/core/clock.c src/core/thread_local.c src/core/context.c src/sampling/sampler.c src/export/serialize.c src/export/ring_buffer.c src/export/file_sink.c src/export/udp_sink.c src/export/exporter_thread.c src/analysis/query.c src/analysis/critical_path.c src/analysis/aggregation.c src/analysis/export_json.c
+# ---- Object sets, split to match the architecture layers ----
+# Each binary links only the layers it actually uses. The dependency
+# direction is: core <- sampling, wire; wire <- export, collector,
+# analysis. core/trace.c references the sampler, so CORE and SAMPLING
+# are always linked together as BASE_OBJS.
+
+# core: trace/span/clock/thread-local/context
+CORE_SRCS = src/core/trace.c src/core/span.c src/core/clock.c src/core/thread_local.c src/core/context.c
 CORE_OBJS = $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(CORE_SRCS))
+
+# sampling: head-based samplers
+SAMPLING_SRCS = src/sampling/sampler.c
+SAMPLING_OBJS = $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(SAMPLING_SRCS))
+
+# wire: neutral span codec shared by export, collector, and analysis
+WIRE_SRCS = src/wire/serialize.c
+WIRE_OBJS = $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(WIRE_SRCS))
+
+# export: ring buffer, sinks, background exporter thread
+EXPORT_SRCS = src/export/ring_buffer.c src/export/file_sink.c src/export/udp_sink.c src/export/exporter_thread.c
+EXPORT_OBJS = $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(EXPORT_SRCS))
+
+# analysis: query, critical path, aggregation, JSON export
+ANALYSIS_SRCS = src/analysis/query.c src/analysis/critical_path.c src/analysis/aggregation.c src/analysis/export_json.c
+ANALYSIS_OBJS = $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(ANALYSIS_SRCS))
+
+# Base runtime needed by every binary (core + the sampler it references)
+BASE_OBJS = $(CORE_OBJS) $(SAMPLING_OBJS)
 
 # Collector source files
 COLLECTOR_SRCS = src/collector/protocol.c src/collector/receiver.c src/collector/assembler.c src/collector/storage.c src/collector/main.c
@@ -121,6 +146,7 @@ all: format dirs examples tests collector
 dirs:
 	@mkdir -p $(OBJ_DIR)/core
 	@mkdir -p $(OBJ_DIR)/sampling
+	@mkdir -p $(OBJ_DIR)/wire
 	@mkdir -p $(OBJ_DIR)/export
 	@mkdir -p $(OBJ_DIR)/examples/01-single-span
 	@mkdir -p $(OBJ_DIR)/examples/02-parent-child
@@ -152,52 +178,55 @@ $(OBJ_DIR)/benchmarks/%.o: benchmarks/%.c | dirs
 	@$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
 # Link examples
-$(EXAMPLE1_BIN): $(EXAMPLE1_OBJ) $(CORE_OBJS)
+# Examples 1-4 use only the base library (traces, spans, context, sampling).
+$(EXAMPLE1_BIN): $(EXAMPLE1_OBJ) $(BASE_OBJS)
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
-$(EXAMPLE2_BIN): $(EXAMPLE2_OBJ) $(CORE_OBJS)
+$(EXAMPLE2_BIN): $(EXAMPLE2_OBJ) $(BASE_OBJS)
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
-$(EXAMPLE3_FRONTEND_BIN): $(EXAMPLE3_FRONTEND_OBJ) $(CORE_OBJS)
+$(EXAMPLE3_FRONTEND_BIN): $(EXAMPLE3_FRONTEND_OBJ) $(BASE_OBJS)
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
-$(EXAMPLE3_BACKEND_BIN): $(EXAMPLE3_BACKEND_OBJ) $(CORE_OBJS)
+$(EXAMPLE3_BACKEND_BIN): $(EXAMPLE3_BACKEND_OBJ) $(BASE_OBJS)
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
-$(EXAMPLE4_BIN): $(EXAMPLE4_OBJ) $(CORE_OBJS)
+$(EXAMPLE4_BIN): $(EXAMPLE4_OBJ) $(BASE_OBJS)
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
-$(EXAMPLE5_FRONTEND_BIN): $(EXAMPLE5_FRONTEND_OBJ) $(CORE_OBJS)
+# The full-system demo exports spans, so it adds the wire + export layers.
+$(EXAMPLE5_FRONTEND_BIN): $(EXAMPLE5_FRONTEND_OBJ) $(BASE_OBJS) $(WIRE_OBJS) $(EXPORT_OBJS) $(ANALYSIS_OBJS)
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
-$(EXAMPLE5_MIDDLEWARE_BIN): $(EXAMPLE5_MIDDLEWARE_OBJ) $(CORE_OBJS)
+$(EXAMPLE5_MIDDLEWARE_BIN): $(EXAMPLE5_MIDDLEWARE_OBJ) $(BASE_OBJS) $(WIRE_OBJS) $(EXPORT_OBJS)
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
-$(EXAMPLE5_DATABASE_BIN): $(EXAMPLE5_DATABASE_OBJ) $(CORE_OBJS)
+$(EXAMPLE5_DATABASE_BIN): $(EXAMPLE5_DATABASE_OBJ) $(BASE_OBJS) $(WIRE_OBJS) $(EXPORT_OBJS)
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
 # Link tests
-$(TEST1_BIN): $(TEST1_OBJ) $(CORE_OBJS)
+$(TEST1_BIN): $(TEST1_OBJ) $(BASE_OBJS)
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
-$(TEST2_BIN): $(TEST2_OBJ) $(CORE_OBJS)
+$(TEST2_BIN): $(TEST2_OBJ) $(BASE_OBJS)
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
-$(TEST3_BIN): $(TEST3_OBJ) $(CORE_OBJS)
+$(TEST3_BIN): $(TEST3_OBJ) $(BASE_OBJS)
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS) -lm
 
-$(TEST4_BIN): $(TEST4_OBJ) $(CORE_OBJS)
+# Phase 4 exercises the wire codec, ring buffer, sinks, and exporter.
+$(TEST4_BIN): $(TEST4_OBJ) $(BASE_OBJS) $(WIRE_OBJS) $(EXPORT_OBJS)
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
@@ -206,52 +235,53 @@ $(OBJ_DIR)/collector/main.test.o: src/collector/main.c | dirs
 	@echo "Compiling $< (no main)"
 	@$(CC) $(CFLAGS) $(INCLUDES) -DCOLLECTOR_NO_MAIN -c $< -o $@
 
-$(TEST5_BIN): $(TEST5_OBJ) $(CORE_OBJS) $(COLLECTOR_LIB_OBJS) $(OBJ_DIR)/collector/main.test.o
+# Phase 5: wire codec + collector library (no analysis, no export thread).
+$(TEST5_BIN): $(TEST5_OBJ) $(BASE_OBJS) $(WIRE_OBJS) $(COLLECTOR_LIB_OBJS) $(OBJ_DIR)/collector/main.test.o
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
-# Phase 6 test needs collector lib objects (storage, assembler, protocol, receiver)
-# and collector/main.test.o for collector_default_config etc.
-$(TEST6_BIN): $(TEST6_OBJ) $(CORE_OBJS) $(COLLECTOR_LIB_OBJS) $(OBJ_DIR)/collector/main.test.o
+# Phase 6: analysis layer plus the collector storage helpers it reads.
+$(TEST6_BIN): $(TEST6_OBJ) $(BASE_OBJS) $(WIRE_OBJS) $(ANALYSIS_OBJS) $(COLLECTOR_LIB_OBJS) $(OBJ_DIR)/collector/main.test.o
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
-# Collector daemon binary
-$(COLLECTOR_BIN): $(COLLECTOR_OBJS) $(CORE_OBJS)
+# Collector daemon binary: base + wire + collector library + main.
+$(COLLECTOR_BIN): $(COLLECTOR_OBJS) $(BASE_OBJS) $(WIRE_OBJS)
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
 # Link benchmarks
-$(BENCH_SAMPLING_DECISION_BIN): $(BENCH_SAMPLING_DECISION_OBJ) $(CORE_OBJS)
+$(BENCH_SAMPLING_DECISION_BIN): $(BENCH_SAMPLING_DECISION_OBJ) $(BASE_OBJS)
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS) -lm
 
-$(BENCH_TRACE_CREATION_BIN): $(BENCH_TRACE_CREATION_OBJ) $(CORE_OBJS)
+$(BENCH_TRACE_CREATION_BIN): $(BENCH_TRACE_CREATION_OBJ) $(BASE_OBJS)
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS) -lm
 
-$(BENCH_RING_BUFFER_BIN): $(BENCH_RING_BUFFER_OBJ) $(CORE_OBJS)
+$(BENCH_RING_BUFFER_BIN): $(BENCH_RING_BUFFER_OBJ) $(BASE_OBJS) $(WIRE_OBJS) $(EXPORT_OBJS)
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
-$(BENCH_EXPORT_BIN): $(BENCH_EXPORT_OBJ) $(CORE_OBJS)
+$(BENCH_EXPORT_BIN): $(BENCH_EXPORT_OBJ) $(BASE_OBJS) $(WIRE_OBJS) $(EXPORT_OBJS)
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
-$(BENCH_CONTEXT_INJECT_BIN): $(BENCH_CONTEXT_INJECT_OBJ) $(CORE_OBJS)
+$(BENCH_CONTEXT_INJECT_BIN): $(BENCH_CONTEXT_INJECT_OBJ) $(BASE_OBJS)
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
-$(BENCH_SPAN_CREATION_BIN): $(BENCH_SPAN_CREATION_OBJ) $(CORE_OBJS)
+$(BENCH_SPAN_CREATION_BIN): $(BENCH_SPAN_CREATION_OBJ) $(BASE_OBJS)
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
-# Collector ingest benchmark needs collector objects + COLLECTOR_NO_MAIN
-$(BENCH_COLLECTOR_INGEST_BIN): $(BENCH_COLLECTOR_INGEST_OBJ) $(CORE_OBJS) $(COLLECTOR_LIB_OBJS) $(OBJ_DIR)/collector/main.test.o
+# Collector ingest benchmark needs the wire codec + collector objects.
+$(BENCH_COLLECTOR_INGEST_BIN): $(BENCH_COLLECTOR_INGEST_OBJ) $(BASE_OBJS) $(WIRE_OBJS) $(COLLECTOR_LIB_OBJS) $(OBJ_DIR)/collector/main.test.o
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
-$(BENCH_OVERHEAD_BIN): $(BENCH_OVERHEAD_OBJ) $(CORE_OBJS)
+# Overhead analysis exercises export submit, so it needs wire + export.
+$(BENCH_OVERHEAD_BIN): $(BENCH_OVERHEAD_OBJ) $(BASE_OBJS) $(WIRE_OBJS) $(EXPORT_OBJS)
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
@@ -426,21 +456,21 @@ $(TEST1_OBJ): $(TEST1_SRC) tests/unit/minunit.h include/dapper/trace.h include/d
 $(TEST2_OBJ): $(TEST2_SRC) tests/unit/minunit.h include/dapper/trace.h include/dapper/span.h include/dapper/context.h include/dapper/types.h
 $(TEST4_OBJ): $(TEST4_SRC) tests/unit/minunit.h include/dapper/exporter.h include/dapper/trace.h include/dapper/span.h include/dapper/types.h
 
-$(OBJ_DIR)/export/serialize.o: src/export/serialize.c include/dapper/exporter.h include/dapper/types.h include/dapper/span.h
-$(OBJ_DIR)/export/ring_buffer.o: src/export/ring_buffer.c include/dapper/exporter.h include/dapper/types.h include/dapper/span.h
+$(OBJ_DIR)/wire/serialize.o: src/wire/serialize.c include/dapper/wire.h include/dapper/types.h
+$(OBJ_DIR)/export/ring_buffer.o: src/export/ring_buffer.c include/dapper/exporter.h include/dapper/wire.h include/dapper/types.h include/dapper/span.h
 $(OBJ_DIR)/export/file_sink.o: src/export/file_sink.c include/dapper/exporter.h
 $(OBJ_DIR)/export/udp_sink.o: src/export/udp_sink.c include/dapper/exporter.h
 $(OBJ_DIR)/export/exporter_thread.o: src/export/exporter_thread.c include/dapper/exporter.h
 
-$(OBJ_DIR)/collector/protocol.o: src/collector/protocol.c include/dapper/collector.h include/dapper/exporter.h include/dapper/types.h
-$(OBJ_DIR)/collector/receiver.o: src/collector/receiver.c include/dapper/collector.h include/dapper/exporter.h include/dapper/types.h
-$(OBJ_DIR)/collector/assembler.o: src/collector/assembler.c include/dapper/collector.h include/dapper/exporter.h include/dapper/types.h
-$(OBJ_DIR)/collector/storage.o: src/collector/storage.c include/dapper/collector.h include/dapper/exporter.h include/dapper/types.h
-$(OBJ_DIR)/collector/main.o: src/collector/main.c include/dapper/collector.h include/dapper/types.h
+$(OBJ_DIR)/collector/protocol.o: src/collector/protocol.c include/dapper/collector.h include/dapper/wire.h include/dapper/types.h
+$(OBJ_DIR)/collector/receiver.o: src/collector/receiver.c src/collector/internal.h include/dapper/collector.h include/dapper/wire.h include/dapper/types.h
+$(OBJ_DIR)/collector/assembler.o: src/collector/assembler.c include/dapper/collector.h include/dapper/wire.h include/dapper/types.h
+$(OBJ_DIR)/collector/storage.o: src/collector/storage.c include/dapper/collector.h include/dapper/wire.h include/dapper/types.h
+$(OBJ_DIR)/collector/main.o: src/collector/main.c src/collector/internal.h include/dapper/collector.h include/dapper/types.h
 
 $(TEST5_OBJ): $(TEST5_SRC) tests/unit/minunit.h include/dapper/collector.h include/dapper/exporter.h include/dapper/trace.h include/dapper/span.h include/dapper/types.h
 
-$(OBJ_DIR)/analysis/query.o: src/analysis/query.c include/dapper/analysis.h include/dapper/exporter.h include/dapper/trace.h include/dapper/types.h
+$(OBJ_DIR)/analysis/query.o: src/analysis/query.c include/dapper/analysis.h include/dapper/wire.h include/dapper/trace.h include/dapper/types.h
 $(OBJ_DIR)/analysis/critical_path.o: src/analysis/critical_path.c include/dapper/analysis.h include/dapper/span.h include/dapper/types.h
 $(OBJ_DIR)/analysis/aggregation.o: src/analysis/aggregation.c include/dapper/analysis.h include/dapper/types.h
 $(OBJ_DIR)/analysis/export_json.o: src/analysis/export_json.c include/dapper/analysis.h include/dapper/types.h

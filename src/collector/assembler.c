@@ -9,7 +9,7 @@
  */
 
 #include "dapper/collector.h"
-#include "dapper/exporter.h"
+#include "dapper/wire.h"
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>

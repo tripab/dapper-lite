@@ -23,7 +23,7 @@
  *       [value_len] value   (UTF-8)
  */
 
-#include "dapper/exporter.h"
+#include "dapper/wire.h"
 #include <arpa/inet.h>
 #include <string.h>
 

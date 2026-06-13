@@ -633,8 +633,7 @@ static const char *test_collector_auth_hook_rejects() {
             wait_for_stats(c, &stats, pred_one_packet, 2000) == 0);
   mu_assert("auth hook was invoked", auth_calls >= 1);
   mu_assert("packet counted unauthorized", stats.packets_unauthorized >= 1);
-  mu_assert_eq("no spans processed", 0UL,
-               (unsigned long)stats.spans_processed);
+  mu_assert_eq("no spans processed", 0UL, (unsigned long)stats.spans_processed);
 
   collector_stop(c);
   collector_destroy(c);
@@ -671,8 +670,7 @@ static const char *test_collector_allowlist_rejects() {
   mu_assert("packet should arrive",
             wait_for_stats(c, &stats, pred_one_packet, 2000) == 0);
   mu_assert("packet counted unauthorized", stats.packets_unauthorized >= 1);
-  mu_assert_eq("no spans processed", 0UL,
-               (unsigned long)stats.spans_processed);
+  mu_assert_eq("no spans processed", 0UL, (unsigned long)stats.spans_processed);
 
   collector_stop(c);
   collector_destroy(c);

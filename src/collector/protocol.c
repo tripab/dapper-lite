@@ -6,7 +6,7 @@
  */
 
 #include "dapper/collector.h"
-#include "dapper/exporter.h"
+#include "dapper/wire.h"
 #include <string.h>
 
 int collector_decode_span(const uint8_t *data, size_t len, span_t *span,

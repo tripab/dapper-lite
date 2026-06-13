@@ -14,8 +14,8 @@
  */
 
 #include "dapper/analysis.h"
-#include "dapper/exporter.h"
 #include "dapper/trace.h"
+#include "dapper/wire.h"
 #include <arpa/inet.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -255,8 +255,7 @@ trace_t **query_load_all_status(const char *storage_path, int *out_count,
 
   /* Surface corruption instead of silently treating it as EOF. */
   if (status == TRACE_READ_CORRUPT || status == TRACE_READ_IO_ERROR) {
-    fprintf(stderr,
-            "query: storage log '%s' %s after %d valid trace(s)\n",
+    fprintf(stderr, "query: storage log '%s' %s after %d valid trace(s)\n",
             storage_path,
             status == TRACE_READ_CORRUPT ? "is corrupt/truncated"
                                          : "hit an I/O error",

@@ -14,8 +14,8 @@
  * to false (the recv will unblock via socket timeout).
  */
 
+#include "dapper/wire.h"
 #include "internal.h"
-#include "dapper/exporter.h"
 #include <arpa/inet.h>
 #include <errno.h>
 #include <stdatomic.h>

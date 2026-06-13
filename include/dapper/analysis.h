@@ -31,10 +31,10 @@
  * that callers do not silently treat data loss as normal termination.
  */
 typedef enum {
-  TRACE_READ_OK = 0,     /* A trace was read successfully */
-  TRACE_READ_EOF,        /* Clean end of file at a record boundary */
-  TRACE_READ_CORRUPT,    /* Malformed, truncated, or impossible record */
-  TRACE_READ_IO_ERROR    /* Underlying read error */
+  TRACE_READ_OK = 0,  /* A trace was read successfully */
+  TRACE_READ_EOF,     /* Clean end of file at a record boundary */
+  TRACE_READ_CORRUPT, /* Malformed, truncated, or impossible record */
+  TRACE_READ_IO_ERROR /* Underlying read error */
 } trace_read_status_t;
 
 /**

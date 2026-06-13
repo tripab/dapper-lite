@@ -322,8 +322,7 @@ int main(int argc, char *argv[]) {
          (unsigned long long)stats.packets_rate_limited);
   printf("  spans processed:  %llu\n",
          (unsigned long long)stats.spans_processed);
-  printf("  spans dropped:    %llu\n",
-         (unsigned long long)stats.spans_dropped);
+  printf("  spans dropped:    %llu\n", (unsigned long long)stats.spans_dropped);
   printf("  traces dropped:   %llu\n",
          (unsigned long long)stats.traces_dropped);
   printf("  traces completed: %llu\n",

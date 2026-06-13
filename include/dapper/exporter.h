@@ -15,69 +15,11 @@
 #define EXPORTER_H
 
 #include "types.h"
+#include "wire.h" /* span_serialize/deserialize, SPAN_WIRE_* constants */
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-
-/* ============================================================
- * Wire Format Constants (Appendix B)
- * ============================================================ */
-
-#define SPAN_WIRE_HEADER_SIZE 48
-#define SPAN_WIRE_MAX_SIZE 256
-
-/* Wire format header offsets */
-#define WIRE_OFF_TRACE_ID 0
-#define WIRE_OFF_SPAN_ID 8
-#define WIRE_OFF_PARENT_SPAN_ID 16
-#define WIRE_OFF_START_TS 24
-#define WIRE_OFF_DURATION_US 32
-#define WIRE_OFF_SAMPLED 40
-#define WIRE_OFF_FLAGS 41
-#define WIRE_OFF_NAME_LEN 42
-#define WIRE_OFF_NUM_ANNOTATIONS 44
-#define WIRE_OFF_RESERVED 46
-
-/* ============================================================
- * Serialization API
- * ============================================================ */
-
-/**
- * Serialize a span into wire format bytes.
- *
- * Encodes span data into the binary wire format defined in
- * Appendix B. All multi-byte integers are big-endian (network order).
- *
- * buffer: Output buffer (must be at least SPAN_WIRE_HEADER_SIZE bytes)
- * bufsize: Size of output buffer (typically SPAN_WIRE_MAX_SIZE)
- * span: The span to serialize
- * sampled: Sampling decision (from trace)
- *
- * Returns: Number of bytes written (>0), or -1 on error.
- *          Annotations are truncated if they exceed buffer space.
- */
-int span_serialize(uint8_t *buffer, size_t bufsize, const span_t *span,
-                   bool sampled);
-
-/**
- * Deserialize wire format bytes back into span fields.
- *
- * This is primarily for testing (round-trip verification) and
- * will be used by the collector in Phase 5.
- *
- * buffer: Input buffer containing wire format data
- * bufsize: Size of input buffer
- * span: Output span (caller-allocated, will be populated)
- * sampled: Output sampling decision
- *
- * Returns: Number of bytes consumed (>0), or -1 on error.
- *
- * Note: Hierarchy pointers (parent, first_child, next_sibling)
- *       are set to NULL since they are not part of the wire format.
- */
-int span_deserialize(const uint8_t *buffer, size_t bufsize, span_t *span,
-                     bool *sampled);
 
 /* ============================================================
  * Ring Buffer (SPSC Lock-Free Queue)

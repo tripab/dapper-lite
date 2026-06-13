@@ -402,15 +402,13 @@ static const char *test_reconstruct_orphan_spans_owned() {
       {2, 1, 5},  /* child of root */
       {3, 99, 4}, /* orphan: parent missing */
   };
-  mu_assert("write custom trace",
-            write_custom_trace(path, 555, descs, 3) == 0);
+  mu_assert("write custom trace", write_custom_trace(path, 555, descs, 3) == 0);
 
   trace_t *t = query_trace_by_id(path, 555);
   mu_assert("trace loaded", t != NULL);
   mu_assert("has root", t->root_span != NULL);
   mu_assert_eq("all 3 spans owned", 3, count_owned(t));
-  mu_assert_eq("only 2 reachable from root", 2,
-               count_hierarchy(t->root_span));
+  mu_assert_eq("only 2 reachable from root", 2, count_hierarchy(t->root_span));
 
   trace_destroy(t); /* must free all 3 spans, not just the reachable 2 */
   unlink(path);
@@ -424,8 +422,7 @@ static const char *test_reconstruct_rootless_trace_owned() {
       {1, 7, 10},
       {2, 7, 5},
   };
-  mu_assert("write custom trace",
-            write_custom_trace(path, 556, descs, 2) == 0);
+  mu_assert("write custom trace", write_custom_trace(path, 556, descs, 2) == 0);
 
   trace_t *t = query_trace_by_id(path, 556);
   mu_assert("trace loaded", t != NULL);
@@ -445,8 +442,7 @@ static const char *test_reconstruct_multiple_roots_owned() {
       {2, 0, 8},  /* root B */
       {3, 1, 4},  /* child of A */
   };
-  mu_assert("write custom trace",
-            write_custom_trace(path, 557, descs, 3) == 0);
+  mu_assert("write custom trace", write_custom_trace(path, 557, descs, 3) == 0);
 
   trace_t *t = query_trace_by_id(path, 557);
   mu_assert("trace loaded", t != NULL);
@@ -573,8 +569,7 @@ static const char *test_load_valid_prefix_then_corrupt() {
   const char *path = "/tmp/test_phase6_prefix_corrupt.bin";
   mu_assert("write test storage", write_test_storage_single(path) == 0);
   uint8_t tid[8] = {0, 0, 0, 0, 0, 0, 0, 9};
-  mu_assert("append partial record",
-            append_bytes(path, tid, sizeof(tid)) == 0);
+  mu_assert("append partial record", append_bytes(path, tid, sizeof(tid)) == 0);
 
   int count = 0;
   trace_read_status_t status = TRACE_READ_OK;

@@ -13,7 +13,7 @@
  */
 
 #include "dapper/collector.h"
-#include "dapper/exporter.h"
+#include "dapper/wire.h"
 #include <arpa/inet.h>
 #include <stdio.h>
 #include <stdlib.h>

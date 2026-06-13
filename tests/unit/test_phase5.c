@@ -436,6 +436,71 @@ static const char *test_storage_null_args() {
   return NULL;
 }
 
+/* B6: the header's declared span count must always equal the number
+ * of span records that follow, so a record is never written
+ * half-formed. */
+static const char *test_storage_record_is_consistent() {
+  const char *path = "/tmp/test_phase5_consistent.bin";
+  unlink(path);
+
+  trace_storage_t *ts = storage_open(path);
+  mu_assert("storage open should succeed", ts != NULL);
+
+  partial_trace_t *pt = partial_trace_create(4321);
+  for (int i = 0; i < 5; i++) {
+    span_t s;
+    memset(&s, 0, sizeof(s));
+    s.trace_id = 4321;
+    s.span_id = (span_id_t)(i + 1);
+    s.parent_span_id = (i == 0) ? 0 : 1;
+    snprintf(s.name, sizeof(s.name), "span_%d", i);
+    partial_trace_add_span(pt, &s, true);
+  }
+
+  mu_assert("write should succeed", storage_write_trace(ts, pt) == 0);
+  mu_assert("flush should succeed", storage_flush(ts) == 0);
+  storage_close(ts);
+  partial_trace_destroy(pt);
+
+  /* Read back: header count must match the spans actually present,
+   * and the file must end exactly at the last span (no trailing or
+   * missing bytes). */
+  FILE *fp = fopen(path, "rb");
+  mu_assert("file should exist", fp != NULL);
+
+  uint64_t tid_be;
+  uint32_t nspans_be;
+  mu_assert_eq("read trace_id", 1UL, (unsigned long)fread(&tid_be, 8, 1, fp));
+  mu_assert_eq("read num_spans", 1UL,
+               (unsigned long)fread(&nspans_be, 4, 1, fp));
+  uint32_t nspans = ntohl(nspans_be);
+  mu_assert_eq("declared span count is 5", 5UL, (unsigned long)nspans);
+
+  uint32_t spans_seen = 0;
+  for (uint32_t i = 0; i < nspans; i++) {
+    uint32_t slen_be;
+    mu_assert_eq("read span len present", 1UL,
+                 (unsigned long)fread(&slen_be, 4, 1, fp));
+    uint32_t slen = ntohl(slen_be);
+    mu_assert("span len within bounds", slen > 0 && slen <= SPAN_WIRE_MAX_SIZE);
+    uint8_t wire[SPAN_WIRE_MAX_SIZE];
+    mu_assert_eq("span payload present", (unsigned long)slen,
+                 (unsigned long)fread(wire, 1, slen, fp));
+    spans_seen++;
+  }
+  mu_assert_eq("payload spans match header", 5UL, (unsigned long)spans_seen);
+
+  /* Exactly at EOF now */
+  uint8_t extra;
+  mu_assert_eq("no trailing bytes", 0UL,
+               (unsigned long)fread(&extra, 1, 1, fp));
+  mu_assert("at EOF", feof(fp) != 0);
+
+  fclose(fp);
+  unlink(path);
+  return NULL;
+}
+
 /* ============================================================
  * Trace Map Resource Cap Tests
  * ============================================================ */
@@ -725,6 +790,7 @@ static const char *all_tests() {
   /* Storage */
   mu_run_test(test_storage_write_and_readback);
   mu_run_test(test_storage_null_args);
+  mu_run_test(test_storage_record_is_consistent);
 
   /* Resource caps and hardening */
   mu_run_test(test_trace_map_caps);

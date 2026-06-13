@@ -61,42 +61,73 @@ int storage_write_trace(trace_storage_t *ts, const partial_trace_t *pt) {
     return -1;
   }
 
-  /* Write trace_id (8 bytes, big-endian) */
-  uint64_t tid_be = host_to_be64(pt->trace_id);
-  if (fwrite(&tid_be, 8, 1, ts->fp) != 1) {
+  /* Stage the entire record in memory first, then write it with a
+   * single fwrite. This guarantees we never emit a header whose
+   * declared span count exceeds the bytes that follow: any
+   * serialization failure aborts before anything is written, and a
+   * torn write (e.g. process killed) is detected by the reader's
+   * length/count validation rather than producing a half-record that
+   * still looks well-formed. */
+
+  /* Header (8B trace_id + 4B num_spans); span count is filled in
+   * after we know how many spans serialized successfully. */
+  size_t cap = 4096;
+  size_t used = 12;
+  uint8_t *buf = malloc(cap);
+  if (!buf) {
     return -1;
   }
 
-  /* Write num_spans (4 bytes, big-endian) */
-  uint32_t nspans_be = htonl((uint32_t)pt->span_count);
-  if (fwrite(&nspans_be, 4, 1, ts->fp) != 1) {
-    return -1;
-  }
-
-  /* Serialize and write each span */
+  uint32_t span_count = 0;
   span_t *s = pt->spans;
   while (s) {
     uint8_t wire_buf[SPAN_WIRE_MAX_SIZE];
     int wire_len = span_serialize(wire_buf, sizeof(wire_buf), s, pt->sampled);
     if (wire_len < 0) {
+      free(buf); /* abort: nothing written to disk */
       return -1;
     }
 
-    /* Write span length prefix (4 bytes, big-endian) */
+    /* Grow the staging buffer if needed (4B len prefix + payload). */
+    size_t need = used + 4 + (size_t)wire_len;
+    if (need > cap) {
+      while (cap < need) {
+        cap *= 2;
+      }
+      uint8_t *grown = realloc(buf, cap);
+      if (!grown) {
+        free(buf);
+        return -1;
+      }
+      buf = grown;
+    }
+
     uint32_t len_be = htonl((uint32_t)wire_len);
-    if (fwrite(&len_be, 4, 1, ts->fp) != 1) {
-      return -1;
-    }
-
-    /* Write span wire data */
-    if (fwrite(wire_buf, 1, (size_t)wire_len, ts->fp) != (size_t)wire_len) {
-      return -1;
-    }
+    memcpy(buf + used, &len_be, 4);
+    used += 4;
+    memcpy(buf + used, wire_buf, (size_t)wire_len);
+    used += (size_t)wire_len;
+    span_count++;
 
     s = s->next_sibling;
   }
 
-  return 0;
+  /* A zero-span record would be rejected as corrupt on read and would
+   * desync the log, so treat "nothing to write" as a successful no-op. */
+  if (span_count == 0) {
+    free(buf);
+    return 0;
+  }
+
+  /* Fill in the header now that the count is known. */
+  uint64_t tid_be = host_to_be64(pt->trace_id);
+  memcpy(buf, &tid_be, 8);
+  uint32_t nspans_be = htonl(span_count);
+  memcpy(buf + 8, &nspans_be, 4);
+
+  size_t written = fwrite(buf, 1, used, ts->fp);
+  free(buf);
+  return written == used ? 0 : -1;
 }
 
 int storage_flush(trace_storage_t *ts) {

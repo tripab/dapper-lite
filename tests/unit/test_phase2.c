@@ -242,19 +242,25 @@ static const char *test_context_propagates_sampled() {
 /* ========== Wall-Clock Timestamp Tests ========== */
 
 static const char *test_wall_clock_timestamp() {
+  /* The span's wall-clock timestamp must fall between readings of the
+   * real clock taken immediately before and after its creation — a
+   * deterministic bound, not a broad hard-coded date window. */
+  struct timespec before, after;
+  clock_gettime(CLOCK_REALTIME, &before);
+  uint64_t before_us =
+      (uint64_t)before.tv_sec * 1000000ULL + (uint64_t)before.tv_nsec / 1000ULL;
+
   trace_t *trace = trace_create();
   span_t *span = span_create(trace, NULL, "test");
 
-  mu_assert("wall_start_us should be non-zero", span->wall_start_us != 0);
+  clock_gettime(CLOCK_REALTIME, &after);
+  uint64_t after_us =
+      (uint64_t)after.tv_sec * 1000000ULL + (uint64_t)after.tv_nsec / 1000ULL;
 
-  /* Wall-clock should be reasonable (within last 10 years and next 1 year) */
-  uint64_t min_time = 1420070400000000ULL; /* 2015-01-01 */
-  uint64_t max_time = 2000000000000000ULL; /* 2033-05-18 */
-
-  mu_assert("wall_start_us should be reasonable (> 2015)",
-            span->wall_start_us > min_time);
-  mu_assert("wall_start_us should be reasonable (< 2033)",
-            span->wall_start_us < max_time);
+  mu_assert("wall_start_us at or after 'before'",
+            span->wall_start_us >= before_us);
+  mu_assert("wall_start_us at or before 'after'",
+            span->wall_start_us <= after_us);
 
   trace_destroy(trace);
   return NULL;

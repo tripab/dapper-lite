@@ -74,15 +74,25 @@ static const char *test_probability_rate_convergence() {
 }
 
 static const char *test_sampling_decision_metadata() {
-  sampler_t *sampler = sampler_create_probability(0.5);
-  sampling_decision_t decision;
+  /* Deterministic endpoints: rate 1.0 always samples, 0.0 never, and
+   * the reason names the strategy and rate. */
+  sampler_t *always = sampler_create_probability(1.0);
+  sampler_t *never = sampler_create_probability(0.0);
+  sampling_decision_t d;
 
-  sampler_should_sample(sampler, NULL, &decision);
+  for (int i = 0; i < 100; i++) {
+    sampler_should_sample(always, NULL, &d);
+    mu_assert("rate 1.0 always samples", d.sampled);
+    mu_assert("rate 1.0 reported", d.sample_rate == 1.0);
+    mu_assert("reason names strategy", strstr(d.reason, "probabilistic") != NULL);
 
-  mu_assert("decision should have sample_rate", decision.sample_rate == 0.5);
-  mu_assert("decision should have reason", strlen(decision.reason) > 0);
+    sampler_should_sample(never, NULL, &d);
+    mu_assert("rate 0.0 never samples", !d.sampled);
+    mu_assert("rate 0.0 reported", d.sample_rate == 0.0);
+  }
 
-  sampler_destroy(sampler);
+  sampler_destroy(always);
+  sampler_destroy(never);
   return NULL;
 }
 
@@ -108,19 +118,24 @@ static const char *test_adaptive_rate_adjustment() {
 
   sampling_decision_t decision;
 
-  /* Make many decisions to trigger rate adjustment */
-  for (int i = 0; i < 1000; i++) {
+  /* A burst of decisions (no per-iteration sleep). Every decision must
+   * carry a rate within (0, 1] and an "adaptive" reason, and the stats
+   * must count exactly the decisions made. */
+  const int n = 2000;
+  for (int i = 0; i < n; i++) {
     sampler_should_sample(sampler, NULL, &decision);
-    usleep(1000); /* 1ms spacing */
+    mu_assert("decision rate in (0,1]",
+              decision.sample_rate > 0.0 && decision.sample_rate <= 1.0);
+    mu_assert("reason names adaptive strategy",
+              strstr(decision.reason, "adaptive") != NULL);
   }
 
-  /* Get final stats */
   sampler_stats_t stats;
   sampler_get_stats(sampler, &stats);
-
-  /* Rate should have adjusted (not at initial 10%) */
-  mu_assert("current_rate should be set", stats.current_rate > 0.0);
-  mu_assert("current_rate should be <= 1.0", stats.current_rate <= 1.0);
+  mu_assert_eq("total decisions counted", (uint64_t)n, stats.total_decisions);
+  mu_assert("current_rate in (0,1]",
+            stats.current_rate > 0.0 && stats.current_rate <= 1.0);
+  mu_assert("sampled count <= total", stats.sampled_count <= stats.total_decisions);
 
   sampler_destroy(sampler);
   return NULL;
@@ -178,18 +193,27 @@ static const char *test_override_priority() {
 /* ========== Trace Integration Tests ========== */
 
 static const char *test_trace_with_sampling() {
-  sampler_t *sampler = sampler_create_probability(0.5);
+  /* The sampler's decision must propagate deterministically onto the
+   * trace metadata and the root span. */
+  sampler_t *always = sampler_create_probability(1.0);
+  trace_t *sampled = trace_create_sampled(always, "/api/test");
+  mu_assert("trace created", sampled != NULL);
+  mu_assert("trace marked sampled", sampled->sampled == true);
+  mu_assert("trace rate is 1.0", sampled->sample_rate == 1.0);
+  mu_assert("reason names strategy",
+            strstr(sampled->sampling_reason, "probabilistic") != NULL);
+  span_t *root = span_create(sampled, NULL, "op");
+  mu_assert("span inherits sampled", root->sampled == true);
+  trace_destroy(sampled);
+  sampler_destroy(always);
 
-  trace_t *trace = trace_create_sampled(sampler, "/api/test");
-  mu_assert("trace should be created", trace != NULL);
-
-  /* Trace should have sampling metadata */
-  mu_assert("trace should have sample_rate", trace->sample_rate > 0.0);
-  mu_assert("trace should have sampling_reason",
-            strlen(trace->sampling_reason) > 0);
-
-  trace_destroy(trace);
-  sampler_destroy(sampler);
+  sampler_t *never = sampler_create_probability(0.0);
+  trace_t *dropped = trace_create_sampled(never, "/api/test");
+  mu_assert("trace marked not sampled", dropped->sampled == false);
+  span_t *root2 = span_create(dropped, NULL, "op");
+  mu_assert("span inherits not sampled", root2->sampled == false);
+  trace_destroy(dropped);
+  sampler_destroy(never);
   return NULL;
 }
 

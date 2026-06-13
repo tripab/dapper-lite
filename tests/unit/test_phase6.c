@@ -355,15 +355,6 @@ static const char *test_query_slowest_nonpositive_limit() {
   return NULL;
 }
 
-static const char *test_query_null_args() {
-  int count;
-  mu_assert("null path returns NULL", query_load_all(NULL, &count) == NULL);
-  mu_assert("null count returns NULL",
-            query_load_all("/nonexistent", NULL) == NULL);
-  mu_assert("null path by_id returns NULL", query_trace_by_id(NULL, 1) == NULL);
-  return NULL;
-}
-
 /* ============================================================
  * Reconstructed Trace Ownership Tests (B5)
  *
@@ -663,14 +654,6 @@ static const char *test_critical_path_single_span() {
   return NULL;
 }
 
-static const char *test_critical_path_null() {
-  int path_len;
-  mu_assert("null trace returns NULL",
-            compute_critical_path(NULL, &path_len) == NULL);
-  mu_assert("path_len is 0", path_len == 0);
-  return NULL;
-}
-
 static const char *test_critical_path_duration() {
   const char *path = "/tmp/test_phase6_cpath_dur.bin";
   mu_assert("write test storage", write_test_storage_single(path) == 0);
@@ -725,12 +708,6 @@ static const char *test_aggregate_single_trace() {
   return NULL;
 }
 
-static const char *test_aggregate_null_args() {
-  int count;
-  mu_assert("null traces returns NULL",
-            aggregate_by_service(NULL, 0, &count) == NULL);
-  return NULL;
-}
 
 /* D3: aggregation must compute exact count/min/max/mean/p50/p99 for a
  * known set of durations grouped by span name. */
@@ -873,13 +850,25 @@ static const char *test_json_export_file() {
   export_trace_json(t, fp);
   fclose(fp);
 
-  /* Read back and verify */
+  /* Read the whole file and assert it contains the expected content,
+   * not merely that it is non-empty. The file form must match the
+   * string form for the same trace. */
   fp = fopen(json_path, "r");
   mu_assert("json file exists", fp != NULL);
-  fseek(fp, 0, SEEK_END);
-  long size = ftell(fp);
-  mu_assert("json file has content", size > 0);
+  char buf[8192];
+  size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
   fclose(fp);
+  buf[n] = '\0';
+
+  mu_assert("file has trace_id field", strstr(buf, "\"trace_id\"") != NULL);
+  mu_assert("file has the trace id value", strstr(buf, "1000") != NULL);
+  mu_assert("file has root span name", strstr(buf, "root_op") != NULL);
+  mu_assert("file has child span name", strstr(buf, "child_op_1") != NULL);
+  mu_assert("file has annotation key", strstr(buf, "db.system") != NULL);
+  mu_assert("file has annotation value", strstr(buf, "postgresql") != NULL);
+  mu_assert("file has critical_path", strstr(buf, "\"critical_path\"") != NULL);
+  mu_assert("file marks sampled true",
+            strstr(buf, "\"sampled\": true") != NULL);
 
   trace_destroy(t);
   unlink(storage_path);
@@ -887,8 +876,31 @@ static const char *test_json_export_file() {
   return NULL;
 }
 
-static const char *test_json_export_null() {
-  mu_assert("null trace returns NULL", export_trace_json_string(NULL) == NULL);
+/* E1: consolidated NULL/argument guards for the analysis API. */
+static const char *test_analysis_null_guards() {
+  int n = -1;
+
+  /* query */
+  mu_assert("query_load_all null path", query_load_all(NULL, &n) == NULL);
+  mu_assert("query_load_all null count",
+            query_load_all("/nonexistent", NULL) == NULL);
+  mu_assert("query_trace_by_id null path",
+            query_trace_by_id(NULL, 1) == NULL);
+
+  /* critical path */
+  int path_len = -1;
+  mu_assert("critical_path null trace",
+            compute_critical_path(NULL, &path_len) == NULL);
+  mu_assert("critical_path len reset", path_len == 0);
+
+  /* aggregation */
+  mu_assert("aggregate null traces",
+            aggregate_by_service(NULL, 0, &n) == NULL);
+
+  /* JSON export */
+  mu_assert("json string null trace",
+            export_trace_json_string(NULL) == NULL);
+  export_trace_json(NULL, stdout); /* must not crash */
   return NULL;
 }
 
@@ -1003,7 +1015,6 @@ static const char *all_tests() {
   mu_run_test(test_query_by_id_not_found);
   mu_run_test(test_query_slowest);
   mu_run_test(test_query_slowest_nonpositive_limit);
-  mu_run_test(test_query_null_args);
 
   /* Reconstructed trace ownership */
   mu_run_test(test_reconstruct_orphan_spans_owned);
@@ -1023,19 +1034,19 @@ static const char *all_tests() {
   /* Critical path */
   mu_run_test(test_critical_path_simple);
   mu_run_test(test_critical_path_single_span);
-  mu_run_test(test_critical_path_null);
   mu_run_test(test_critical_path_duration);
 
   /* Aggregation */
   mu_run_test(test_aggregate_single_trace);
   mu_run_test(test_aggregate_exact_stats);
-  mu_run_test(test_aggregate_null_args);
 
   /* JSON export */
   mu_run_test(test_json_export_string);
   mu_run_test(test_json_escapes_special_chars);
   mu_run_test(test_json_export_file);
-  mu_run_test(test_json_export_null);
+
+  /* Consolidated NULL/argument guards */
+  mu_run_test(test_analysis_null_guards);
 
   /* Full pipeline integration */
   mu_run_test(test_full_pipeline_integration);

@@ -21,30 +21,26 @@ int tests_failed = 0;
 
 /* ========== Trace Tests ========== */
 
-static const char *test_trace_create_destroy() {
+/* E2: one lifecycle test exercising create -> default state -> use
+ * (attach a span) -> destroy, plus the custom-id constructor. */
+static const char *test_trace_lifecycle() {
   trace_t *trace = trace_create();
   mu_assert("trace_create should return non-NULL", trace != NULL);
   mu_assert("trace should have non-zero ID", trace->id != 0);
   mu_assert("new trace should have NULL root_span", trace->root_span == NULL);
 
+  /* Use it: the first root span becomes the trace's root. */
+  span_t *root = span_create(trace, NULL, "root");
+  mu_assert("root span created", root != NULL);
+  mu_assert("trace root_span set to first root", trace->root_span == root);
   trace_destroy(trace);
-  return NULL;
-}
 
-static const char *test_trace_with_id() {
+  /* Custom-id constructor preserves the id. */
   trace_id_t custom_id = 0x123456789ABCDEF0ULL;
-  trace_t *trace = trace_create_with_id(custom_id);
-
-  mu_assert("trace_create_with_id should return non-NULL", trace != NULL);
-  mu_assert_eq("trace should have custom ID", custom_id, trace->id);
-
+  trace = trace_create_with_id(custom_id);
+  mu_assert("trace_create_with_id non-NULL", trace != NULL);
+  mu_assert_eq("trace has custom ID", custom_id, trace->id);
   trace_destroy(trace);
-  return NULL;
-}
-
-static const char *test_trace_destroy_null() {
-  /* Should not crash */
-  trace_destroy(NULL);
   return NULL;
 }
 
@@ -269,17 +265,28 @@ static const char *test_annotation_truncation() {
   return NULL;
 }
 
-static const char *test_annotation_null_safety() {
+/* E1: consolidated NULL/no-crash guards for the phase 1 API. */
+static const char *test_phase1_null_guards() {
+  /* trace_destroy(NULL) and span_create with NULL args must not crash. */
+  trace_destroy(NULL);
+  mu_assert("span_create NULL trace returns NULL",
+            span_create(NULL, NULL, "x") == NULL);
+
   trace_t *trace = trace_create();
   span_t *span = span_create(trace, NULL, "test");
+  mu_assert("span_create NULL name returns NULL",
+            span_create(trace, NULL, NULL) == NULL);
 
-  /* Should not crash with NULL inputs */
+  /* span_annotate ignores NULL arguments without recording anything. */
   span_annotate(NULL, "key", "value");
   span_annotate(span, NULL, "value");
   span_annotate(span, "key", NULL);
+  mu_assert_eq("0 annotations after NULL calls", 0, span->annotation_count);
 
-  mu_assert_eq("should have 0 annotations after NULL calls", 0,
-               span->annotation_count);
+  /* span_finish / span_duration_ns are NULL-safe. */
+  span_finish(NULL);
+  mu_assert_eq("duration of NULL span is 0", 0UL,
+               (unsigned long)span_duration_ns(NULL));
 
   trace_destroy(trace);
   return NULL;
@@ -292,9 +299,7 @@ static const char *all_tests() {
   printf("===========================\n\n");
 
   printf("Trace Tests:\n");
-  mu_run_test(test_trace_create_destroy);
-  mu_run_test(test_trace_with_id);
-  mu_run_test(test_trace_destroy_null);
+  mu_run_test(test_trace_lifecycle);
 
   printf("Span Tests:\n");
   mu_run_test(test_span_create_finish);
@@ -311,7 +316,9 @@ static const char *all_tests() {
   mu_run_test(test_annotation_storage);
   mu_run_test(test_annotation_overflow);
   mu_run_test(test_annotation_truncation);
-  mu_run_test(test_annotation_null_safety);
+
+  printf("Guard Tests:\n");
+  mu_run_test(test_phase1_null_guards);
 
   return NULL;
 }

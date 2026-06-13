@@ -46,6 +46,9 @@ int context_inject(const span_t *span, uint8_t *buffer, size_t bufsize) {
   memcpy(buffer, &trace_id_net, sizeof(uint64_t));
   memcpy(buffer + 8, &span_id_net, sizeof(uint64_t));
 
+  /* Flags byte carries the head-based sampling decision. */
+  buffer[16] = span->sampled ? TRACE_CONTEXT_FLAG_SAMPLED : 0;
+
   return TRACE_CONTEXT_WIRE_SIZE;
 }
 
@@ -63,6 +66,7 @@ int context_extract(trace_context_t *ctx, const uint8_t *buffer,
 
   ctx->trace_id = be64toh(trace_id_net);
   ctx->span_id = be64toh(span_id_net);
+  ctx->sampled = (buffer[16] & TRACE_CONTEXT_FLAG_SAMPLED) != 0;
 
   return 0;
 }
@@ -73,8 +77,11 @@ span_t *span_create_from_context(trace_t *trace, const trace_context_t *ctx,
     return NULL;
   }
 
-  /* Update trace with the extracted trace_id */
+  /* Update trace with the extracted trace_id and propagated sampling
+   * decision before creating the span, so the new span inherits the
+   * upstream head-based decision. */
   trace->id = ctx->trace_id;
+  trace->sampled = ctx->sampled;
 
   /* Create span as root (no in-process parent) */
   span_t *span = span_create(trace, NULL, name);

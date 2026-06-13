@@ -8,6 +8,7 @@
 #define DAPPER_CONTEXT_H
 
 #include "types.h"
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -20,12 +21,18 @@
 typedef struct {
   trace_id_t trace_id;
   span_id_t span_id; /* Parent span ID for the receiving side */
+  bool sampled;      /* Head-based sampling decision, propagated */
 } trace_context_t;
 
 /**
  * Wire format constants
+ *
+ * 8 bytes trace_id + 8 bytes span_id + 1 byte flags (bit0 = sampled).
+ * Carrying the sampling decision keeps head-based sampling consistent
+ * across process boundaries.
  */
-#define TRACE_CONTEXT_WIRE_SIZE 16 /* 8 bytes trace_id + 8 bytes span_id */
+#define TRACE_CONTEXT_WIRE_SIZE 17
+#define TRACE_CONTEXT_FLAG_SAMPLED 0x01
 
 /**
  * Inject trace context into a buffer (serialize)

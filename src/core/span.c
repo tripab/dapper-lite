@@ -53,6 +53,9 @@ span_t *span_create(trace_t *trace, span_t *parent, const char *name) {
   /* Copy name */
   safe_strncpy(span->name, name, SPAN_NAME_MAX_LENGTH);
 
+  /* Inherit the trace's head-based sampling decision. */
+  span->sampled = trace->sampled;
+
   /* Capture start timestamps (both monotonic and wall-clock) */
   span->monotonic_start_ns = clock_monotonic_ns();
   /* Wall-clock time for cross-system correlation */

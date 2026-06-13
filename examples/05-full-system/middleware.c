@@ -135,9 +135,9 @@ static void handle_connection(int client_sock, exporter_t *exporter) {
     num_calls = 10;
   }
 
-  /* Create trace and middleware span */
+  /* Create trace and middleware span. The sampling decision is
+   * inherited from the propagated context, not forced. */
   trace_t *trace = trace_create_with_id(ctx.trace_id);
-  trace->sampled = true; /* Demo: always sample */
   span_t *mw_span = span_create_from_context(trace, &ctx, "middleware_process");
   span_annotate(mw_span, "service", "middleware");
 

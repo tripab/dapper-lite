@@ -148,8 +148,11 @@ void exporter_submit(exporter_t *exporter, const span_t *span) {
   atomic_fetch_add_explicit(&exporter->stats.spans_submitted, 1,
                             memory_order_relaxed);
 
-  bool sampled = true; /* Default: assume sampled if submitting */
-  if (!ring_buffer_push(exporter->ring_buffer, span, sampled)) {
+  /* Encode the span's real head-based sampling decision, not a
+   * hardcoded "true". The caller is still responsible for gating
+   * submission on the sampling decision; this keeps the wire format
+   * honest if an unsampled span is ever submitted. */
+  if (!ring_buffer_push(exporter->ring_buffer, span, span->sampled)) {
     atomic_fetch_add_explicit(&exporter->stats.spans_dropped, 1,
                               memory_order_relaxed);
   }

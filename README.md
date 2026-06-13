@@ -274,14 +274,19 @@ Offset  Size  Field
 48+N    ...   annotations (key_len + key + value_len + value)
 ```
 
-### Context Wire Format (16 bytes)
+### Context Wire Format (17 bytes)
 
 ```
 Offset  Size  Field
 ------  ----  -----
 0       8     trace_id (big-endian)
 8       8     span_id (big-endian)
+16      1     flags (bit 0 = sampled)
 ```
+
+The sampled bit propagates the head-based sampling decision across
+process boundaries, so a downstream service honours the same decision
+made at the trace root.
 
 ---
 

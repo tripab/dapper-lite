@@ -205,6 +205,40 @@ static const char *test_cross_process_trace_continuity() {
   return NULL;
 }
 
+/* ========== Sampling Propagation Tests (C3) ========== */
+
+static const char *test_context_propagates_sampled() {
+  /* A sampled trace must round-trip its decision through the context
+   * wire format, and an unsampled trace must too. */
+  for (int decision = 0; decision <= 1; decision++) {
+    trace_t *trace = trace_create();
+    trace->sampled = (decision == 1);
+    span_t *span = span_create(trace, NULL, "op");
+    mu_assert("span inherits trace sampling", span->sampled == trace->sampled);
+
+    uint8_t buffer[TRACE_CONTEXT_WIRE_SIZE];
+    int len = context_inject(span, buffer, sizeof(buffer));
+    mu_assert_eq("inject returns wire size", TRACE_CONTEXT_WIRE_SIZE, len);
+
+    trace_context_t ctx;
+    mu_assert_eq("extract succeeds", 0,
+                 context_extract(&ctx, buffer, sizeof(buffer)));
+    mu_assert("sampled flag preserved", ctx.sampled == (decision == 1));
+
+    /* A downstream span continues the trace and inherits the decision. */
+    trace_t *downstream = trace_create();
+    span_t *child = span_create_from_context(downstream, &ctx, "child");
+    mu_assert("downstream trace inherits sampling",
+              downstream->sampled == (decision == 1));
+    mu_assert("downstream span inherits sampling",
+              child->sampled == (decision == 1));
+
+    trace_destroy(trace);
+    trace_destroy(downstream);
+  }
+  return NULL;
+}
+
 /* ========== Wall-Clock Timestamp Tests ========== */
 
 static const char *test_wall_clock_timestamp() {
@@ -270,6 +304,7 @@ static const char *all_tests() {
   printf("Cross-Process Span Tests:\n");
   mu_run_test(test_span_create_from_context);
   mu_run_test(test_cross_process_trace_continuity);
+  mu_run_test(test_context_propagates_sampled);
 
   printf("Wall-Clock Timestamp Tests:\n");
   mu_run_test(test_wall_clock_timestamp);

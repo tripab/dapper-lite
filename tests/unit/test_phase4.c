@@ -439,6 +439,48 @@ static const char *test_exporter_end_to_end() {
   return NULL;
 }
 
+static const char *test_exporter_reflects_sampling() {
+  /* exporter_submit() must encode the span's real sampling decision,
+   * not a hardcoded "true". */
+  const char *path = "/tmp/dapper_test_exporter_sampled.bin";
+  unlink(path);
+
+  exporter_t *exp = exporter_create_file(path);
+  mu_assert("exporter create should succeed", exp != NULL);
+  mu_assert("exporter start should succeed", exporter_start(exp) == 0);
+
+  trace_t *trace = trace_create();
+  trace->sampled = false; /* unsampled trace */
+  span_t *s = span_create(trace, NULL, "unsampled");
+  span_finish(s);
+  mu_assert("span inherits unsampled decision", s->sampled == false);
+  exporter_submit(exp, s);
+
+  usleep(200000);
+  exporter_destroy(exp);
+
+  FILE *fp = fopen(path, "rb");
+  mu_assert("output file should exist", fp != NULL);
+  uint32_t payload_len;
+  mu_assert_eq("read length prefix", 1UL,
+               (unsigned long)fread(&payload_len, 4, 1, fp));
+  uint8_t buf[SPAN_WIRE_MAX_SIZE];
+  mu_assert_eq("read payload", (unsigned long)payload_len,
+               (unsigned long)fread(buf, 1, payload_len, fp));
+  fclose(fp);
+
+  span_t decoded;
+  bool sampled = true;
+  mu_assert("deserialize ok",
+            span_deserialize(buf, payload_len, &decoded, &sampled) > 0);
+  mu_assert("wire reflects unsampled decision", sampled == false);
+  mu_assert("decoded span carries unsampled", decoded.sampled == false);
+
+  unlink(path);
+  trace_destroy(trace);
+  return NULL;
+}
+
 static const char *test_exporter_backpressure() {
   const char *path = "/tmp/dapper_test_exporter_bp.bin";
   unlink(path);
@@ -509,6 +551,7 @@ static const char *all_tests() {
 
   printf("Exporter Tests:\n");
   mu_run_test(test_exporter_end_to_end);
+  mu_run_test(test_exporter_reflects_sampling);
   mu_run_test(test_exporter_backpressure);
   mu_run_test(test_exporter_null_safety);
 

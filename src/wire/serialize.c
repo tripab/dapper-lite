@@ -209,6 +209,7 @@ int span_deserialize(const uint8_t *buffer, size_t bufsize, span_t *span,
   span->monotonic_end_ns = duration_us * 1000ULL;
 
   *sampled = read_u8(buffer, WIRE_OFF_SAMPLED) != 0;
+  span->sampled = *sampled;
   /* flags at offset 41 — reserved, skip */
 
   uint16_t name_len = read_u16(buffer, WIRE_OFF_NAME_LEN);
@@ -265,10 +266,12 @@ int span_deserialize(const uint8_t *buffer, size_t bufsize, span_t *span,
     span->annotation_count++;
   }
 
-  /* Hierarchy pointers are not part of wire format */
+  /* Hierarchy/ownership pointers are not part of wire format
+   * (already cleared by the memset above). */
   span->parent = NULL;
   span->first_child = NULL;
   span->next_sibling = NULL;
+  span->owner_next = NULL;
 
   return (int)offset;
 }

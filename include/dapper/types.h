@@ -55,6 +55,11 @@ typedef struct span {
   /* Phase 2: Wall-clock time for cross-system correlation */
   uint64_t wall_start_us; /* Microseconds since epoch */
 
+  /* Head-based sampling decision, inherited from the owning trace at
+   * span_create(). Carried on every span so export and the wire format
+   * reflect the real decision instead of assuming "sampled". */
+  bool sampled;
+
   /* Annotations (bounded array) */
   annotation_t annotations[MAX_ANNOTATIONS];
   int annotation_count;

@@ -79,9 +79,10 @@ static void handle_connection(int client_sock, exporter_t *exporter) {
     query_type[copy_len] = '\0';
   }
 
-  /* Create trace and span from received context */
+  /* Create trace and span from received context. The sampling
+   * decision is inherited from the propagated context (set by
+   * span_create_from_context), not forced. */
   trace_t *trace = trace_create_with_id(ctx.trace_id);
-  trace->sampled = true; /* Demo: always sample */
   span_t *db_span = span_create_from_context(trace, &ctx, "db_query");
   span_annotate(db_span, "service", "database");
   span_annotate(db_span, "db.type", "postgresql");

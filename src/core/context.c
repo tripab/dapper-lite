@@ -2,8 +2,8 @@
  * context.c - Trace context serialization/deserialization
  */
 
-#include "dapper/byteorder.h"
 #include "dapper/context.h"
+#include "dapper/byteorder.h"
 #include "dapper/span.h"
 #include "dapper/trace.h"
 #include <string.h>

@@ -15,8 +15,8 @@
 typedef void (*span_visit_fn)(const span_t *span, void *ctx);
 
 /** Visit every span in the subtree rooted at `root` in preorder. */
-static inline void span_tree_walk_preorder(const span_t *root,
-                                           span_visit_fn fn, void *ctx) {
+static inline void span_tree_walk_preorder(const span_t *root, span_visit_fn fn,
+                                           void *ctx) {
   if (!root) {
     return;
   }

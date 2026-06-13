@@ -140,7 +140,7 @@ FORMAT_SRCS = $(shell find src include examples tests -name '*.c' -o -name '*.h'
 # Check for clang-format
 CLANG_FORMAT := $(shell command -v clang-format 2> /dev/null)
 
-.PHONY: all clean examples tests collector run-examples run-tests run-full-system run-visualization valgrind format format-check dirs help
+.PHONY: all clean examples tests collector run-examples run-tests run-full-system run-visualization valgrind coverage format format-check dirs help
 
 all: format dirs examples tests collector
 
@@ -412,6 +412,10 @@ valgrind: tests examples
 	@echo "=== Valgrind: Example 2 ==="
 	@valgrind --leak-check=full --error-exitcode=1 $(EXAMPLE2_BIN)
 
+# Coverage + CRAP/mutation priorities (see docs/quality-targets.md)
+coverage:
+	@./scripts/coverage.sh
+
 clean:
 	@echo "Cleaning build directory..."
 	@rm -rf $(BUILD_DIR)
@@ -435,6 +439,7 @@ help:
 	@echo "  format          - Format all source files with clang-format"
 	@echo "  format-check    - Check if files are properly formatted"
 	@echo "  valgrind        - Run valgrind memory checks"
+	@echo "  coverage        - gcov coverage report + CRAP/mutation targets"
 	@echo "  clean           - Remove build directory"
 	@echo "  help            - Show this help message"
 	@echo ""

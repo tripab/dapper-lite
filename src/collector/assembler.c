@@ -8,8 +8,8 @@
  * Hash function: FNV-1a on the 8-byte trace_id.
  */
 
-#include "internal.h"
 #include "dapper/wire.h"
+#include "internal.h"
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>

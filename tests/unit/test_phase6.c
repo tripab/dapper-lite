@@ -563,8 +563,8 @@ static const char *test_load_malformed_inner_span() {
   mu_assert("write span len", append_bytes(path, slen, sizeof(slen)) == 0);
 
   uint8_t span_hdr[48] = {0};
-  span_hdr[0] = 0; /* trace_id high bytes... */
-  span_hdr[7] = 7; /* trace_id = 7 */
+  span_hdr[0] = 0;  /* trace_id high bytes... */
+  span_hdr[7] = 7;  /* trace_id = 7 */
   span_hdr[15] = 1; /* span_id = 1 */
   /* name_len at offset 42 (big-endian) = 100, exceeds the 48-byte payload */
   span_hdr[42] = 0;
@@ -707,7 +707,6 @@ static const char *test_aggregate_single_trace() {
   unlink(path);
   return NULL;
 }
-
 
 /* D3: aggregation must compute exact count/min/max/mean/p50/p99 for a
  * known set of durations grouped by span name. */
@@ -884,8 +883,7 @@ static const char *test_analysis_null_guards() {
   mu_assert("query_load_all null path", query_load_all(NULL, &n) == NULL);
   mu_assert("query_load_all null count",
             query_load_all("/nonexistent", NULL) == NULL);
-  mu_assert("query_trace_by_id null path",
-            query_trace_by_id(NULL, 1) == NULL);
+  mu_assert("query_trace_by_id null path", query_trace_by_id(NULL, 1) == NULL);
 
   /* critical path */
   int path_len = -1;
@@ -894,12 +892,10 @@ static const char *test_analysis_null_guards() {
   mu_assert("critical_path len reset", path_len == 0);
 
   /* aggregation */
-  mu_assert("aggregate null traces",
-            aggregate_by_service(NULL, 0, &n) == NULL);
+  mu_assert("aggregate null traces", aggregate_by_service(NULL, 0, &n) == NULL);
 
   /* JSON export */
-  mu_assert("json string null trace",
-            export_trace_json_string(NULL) == NULL);
+  mu_assert("json string null trace", export_trace_json_string(NULL) == NULL);
   export_trace_json(NULL, stdout); /* must not crash */
   return NULL;
 }
@@ -916,7 +912,8 @@ static bool int_pred_two_spans(const collector_stats_t *s) {
   return s->spans_processed >= 2;
 }
 
-static int wait_collector(collector_t *c, bool (*pred)(const collector_stats_t *),
+static int wait_collector(collector_t *c,
+                          bool (*pred)(const collector_stats_t *),
                           int timeout_ms) {
   collector_stats_t st;
   for (int waited = 0; waited < timeout_ms; waited += 10) {

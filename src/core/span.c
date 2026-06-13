@@ -3,8 +3,8 @@
  */
 
 #define _POSIX_C_SOURCE 200809L
-#include "clock.h"
 #include "dapper/span.h"
+#include "clock.h"
 #include "dapper/trace.h"
 #include <stdatomic.h>
 #include <stdlib.h>

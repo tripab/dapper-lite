@@ -103,7 +103,8 @@ static int serialize_annotation_count(const span_t *span, size_t bufsize,
 
 /* Write the 48-byte fixed header. Returns 0 on success, -1 on error. */
 static int serialize_header(uint8_t *buffer, size_t bufsize, const span_t *span,
-                            bool sampled, size_t name_len, int num_annotations) {
+                            bool sampled, size_t name_len,
+                            int num_annotations) {
   uint64_t start_ts = span->wall_start_us;
   uint64_t duration_us = 0;
   if (span->monotonic_end_ns > span->monotonic_start_ns) {
@@ -273,8 +274,8 @@ int span_deserialize(const uint8_t *buffer, size_t bufsize, span_t *span,
   offset += name_len;
 
   /* Read annotations */
-  if (deserialize_annotations(buffer, bufsize, span, num_annotations,
-                              &offset) < 0) {
+  if (deserialize_annotations(buffer, bufsize, span, num_annotations, &offset) <
+      0) {
     return -1;
   }
 

@@ -84,7 +84,8 @@ static const char *test_sampling_decision_metadata() {
     sampler_should_sample(always, NULL, &d);
     mu_assert("rate 1.0 always samples", d.sampled);
     mu_assert("rate 1.0 reported", d.sample_rate == 1.0);
-    mu_assert("reason names strategy", strstr(d.reason, "probabilistic") != NULL);
+    mu_assert("reason names strategy",
+              strstr(d.reason, "probabilistic") != NULL);
 
     sampler_should_sample(never, NULL, &d);
     mu_assert("rate 0.0 never samples", !d.sampled);
@@ -135,7 +136,8 @@ static const char *test_adaptive_rate_adjustment() {
   mu_assert_eq("total decisions counted", (uint64_t)n, stats.total_decisions);
   mu_assert("current_rate in (0,1]",
             stats.current_rate > 0.0 && stats.current_rate <= 1.0);
-  mu_assert("sampled count <= total", stats.sampled_count <= stats.total_decisions);
+  mu_assert("sampled count <= total",
+            stats.sampled_count <= stats.total_decisions);
 
   sampler_destroy(sampler);
   return NULL;

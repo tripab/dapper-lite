@@ -50,6 +50,7 @@ trace_t *trace_create_with_id(trace_id_t trace_id) {
 
   trace->id = trace_id;
   trace->root_span = NULL;
+  trace->all_spans = NULL;
 
   /* Initialize sampling fields (Phase 3) */
   trace->sampled = true; /* Default: sample everything */
@@ -59,33 +60,20 @@ trace_t *trace_create_with_id(trace_id_t trace_id) {
   return trace;
 }
 
-/**
- * Recursively destroy a span and all its descendants
- */
-static void span_destroy_recursive(span_t *span) {
-  if (!span) {
-    return;
-  }
-
-  /* Destroy all children first */
-  span_t *child = span->first_child;
-  while (child) {
-    span_t *next = child->next_sibling;
-    span_destroy_recursive(child);
-    child = next;
-  }
-
-  /* Now safe to free this span */
-  free(span);
-}
-
 void trace_destroy(trace_t *trace) {
   if (!trace) {
     return;
   }
 
-  /* Destroy all spans in the trace */
-  span_destroy_recursive(trace->root_span);
+  /* Free every span via the ownership chain, independent of the
+   * hierarchy, so orphan spans, multiple roots, and rootless traces
+   * are all reclaimed. */
+  span_t *span = trace->all_spans;
+  while (span) {
+    span_t *next = span->owner_next;
+    free(span);
+    span = next;
+  }
 
   free(trace);
 }

@@ -183,6 +183,43 @@ static int write_trace_header(const char *path, uint64_t trace_id,
   return append_bytes(path, hdr, sizeof(hdr));
 }
 
+/* Write a storage file from caller-described spans (no collector
+ * helpers), so tests can craft rootless / orphan / multi-root traces.
+ * Each span is (span_id, parent_span_id, duration_ms). */
+typedef struct {
+  uint64_t span_id;
+  uint64_t parent_span_id;
+  uint64_t duration_ms;
+} span_desc_t;
+
+static int write_custom_trace(const char *path, uint64_t trace_id,
+                              const span_desc_t *descs, int n) {
+  unlink(path);
+  trace_storage_t *ts = storage_open(path);
+  if (!ts) {
+    return -1;
+  }
+  partial_trace_t *pt = partial_trace_create(trace_id);
+  for (int i = 0; i < n; i++) {
+    span_t s;
+    memset(&s, 0, sizeof(s));
+    s.trace_id = trace_id;
+    s.span_id = descs[i].span_id;
+    s.parent_span_id = descs[i].parent_span_id;
+    s.wall_start_us = 1000000 + i * 1000;
+    s.monotonic_start_ns = 0;
+    s.monotonic_end_ns = descs[i].duration_ms * 1000000ULL;
+    snprintf(s.name, sizeof(s.name), "span_%llu",
+             (unsigned long long)descs[i].span_id);
+    partial_trace_add_span(pt, &s, true);
+  }
+  int rc = storage_write_trace(ts, pt);
+  storage_flush(ts);
+  storage_close(ts);
+  partial_trace_destroy(pt);
+  return rc;
+}
+
 /* ============================================================
  * Storage Reader / Query Tests
  * ============================================================ */
@@ -324,6 +361,101 @@ static const char *test_query_null_args() {
   mu_assert("null count returns NULL",
             query_load_all("/nonexistent", NULL) == NULL);
   mu_assert("null path by_id returns NULL", query_trace_by_id(NULL, 1) == NULL);
+  return NULL;
+}
+
+/* ============================================================
+ * Reconstructed Trace Ownership Tests (B5)
+ *
+ * These exercise loads that leave spans unreachable from root so
+ * that, under a leak sanitizer, trace_destroy() must still free every
+ * span. They run clean under -fsanitize=address,leak.
+ * ============================================================ */
+
+/* count spans reachable from root via the hierarchy */
+static int count_hierarchy(const span_t *span) {
+  if (!span) {
+    return 0;
+  }
+  int n = 1;
+  for (const span_t *c = span->first_child; c; c = c->next_sibling) {
+    n += count_hierarchy(c);
+  }
+  return n;
+}
+
+/* count spans owned by the trace via the ownership chain */
+static int count_owned(const trace_t *t) {
+  int n = 0;
+  for (const span_t *s = t->all_spans; s; s = s->owner_next) {
+    n++;
+  }
+  return n;
+}
+
+static const char *test_reconstruct_orphan_spans_owned() {
+  /* span 3's parent (99) does not exist -> orphan, unreachable from
+   * root but still owned by the trace. */
+  const char *path = "/tmp/test_phase6_orphan.bin";
+  span_desc_t descs[] = {
+      {1, 0, 10}, /* root */
+      {2, 1, 5},  /* child of root */
+      {3, 99, 4}, /* orphan: parent missing */
+  };
+  mu_assert("write custom trace",
+            write_custom_trace(path, 555, descs, 3) == 0);
+
+  trace_t *t = query_trace_by_id(path, 555);
+  mu_assert("trace loaded", t != NULL);
+  mu_assert("has root", t->root_span != NULL);
+  mu_assert_eq("all 3 spans owned", 3, count_owned(t));
+  mu_assert_eq("only 2 reachable from root", 2,
+               count_hierarchy(t->root_span));
+
+  trace_destroy(t); /* must free all 3 spans, not just the reachable 2 */
+  unlink(path);
+  return NULL;
+}
+
+static const char *test_reconstruct_rootless_trace_owned() {
+  /* No span has parent_span_id 0 -> no root, but spans still owned. */
+  const char *path = "/tmp/test_phase6_rootless.bin";
+  span_desc_t descs[] = {
+      {1, 7, 10},
+      {2, 7, 5},
+  };
+  mu_assert("write custom trace",
+            write_custom_trace(path, 556, descs, 2) == 0);
+
+  trace_t *t = query_trace_by_id(path, 556);
+  mu_assert("trace loaded", t != NULL);
+  mu_assert("no root span", t->root_span == NULL);
+  mu_assert_eq("both spans owned", 2, count_owned(t));
+
+  trace_destroy(t); /* must free both despite NULL root */
+  unlink(path);
+  return NULL;
+}
+
+static const char *test_reconstruct_multiple_roots_owned() {
+  /* Two spans claim root: first kept as root_span, both owned. */
+  const char *path = "/tmp/test_phase6_multiroot.bin";
+  span_desc_t descs[] = {
+      {1, 0, 10}, /* root A */
+      {2, 0, 8},  /* root B */
+      {3, 1, 4},  /* child of A */
+  };
+  mu_assert("write custom trace",
+            write_custom_trace(path, 557, descs, 3) == 0);
+
+  trace_t *t = query_trace_by_id(path, 557);
+  mu_assert("trace loaded", t != NULL);
+  mu_assert("has a root", t->root_span != NULL);
+  mu_assert("root_span is an actual root", t->root_span->parent_span_id == 0);
+  mu_assert_eq("all 3 spans owned", 3, count_owned(t));
+
+  trace_destroy(t); /* must free the second root too */
+  unlink(path);
   return NULL;
 }
 
@@ -656,6 +788,11 @@ static const char *all_tests() {
   mu_run_test(test_query_slowest);
   mu_run_test(test_query_slowest_nonpositive_limit);
   mu_run_test(test_query_null_args);
+
+  /* Reconstructed trace ownership */
+  mu_run_test(test_reconstruct_orphan_spans_owned);
+  mu_run_test(test_reconstruct_rootless_trace_owned);
+  mu_run_test(test_reconstruct_multiple_roots_owned);
 
   /* Corrupt / truncated storage */
   mu_run_test(test_load_clean_reports_eof);

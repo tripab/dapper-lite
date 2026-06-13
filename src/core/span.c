@@ -70,6 +70,12 @@ span_t *span_create(trace_t *trace, span_t *parent, const char *name) {
   span->first_child = NULL;
   span->next_sibling = NULL;
 
+  /* Add to the trace's ownership list so trace_destroy() frees it
+   * even if it never becomes reachable through the hierarchy (e.g. a
+   * second root span). */
+  span->owner_next = trace->all_spans;
+  trace->all_spans = span;
+
   if (parent) {
     /* Add to parent's child list */
     if (parent->first_child == NULL) {

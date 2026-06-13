@@ -63,6 +63,13 @@ typedef struct span {
   struct span *parent;       /* Parent span (NULL if root) */
   struct span *first_child;  /* First child in linked list */
   struct span *next_sibling; /* Next sibling in parent's child list */
+
+  /* Ownership chain: every span belonging to a trace is linked here,
+   * independent of the hierarchy. The owning trace frees spans by
+   * walking this list, so orphan spans, multiple roots, and rootless
+   * traces never leak. Maintained by span_create() and the storage
+   * reconstruction path; not part of the wire format. */
+  struct span *owner_next;
 } span_t;
 
 /**
@@ -75,6 +82,11 @@ typedef struct span {
 typedef struct {
   trace_id_t id;
   span_t *root_span;
+
+  /* Head of the ownership list (span->owner_next chain). The trace
+   * owns and frees every span reachable from here, regardless of
+   * hierarchy. */
+  span_t *all_spans;
 
   /* Phase 3: Sampling metadata */
   bool sampled;             /* Was this trace sampled? */

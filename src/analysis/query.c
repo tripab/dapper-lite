@@ -49,22 +49,31 @@ static span_t *find_span_by_id(span_t **spans, int count, span_id_t id) {
 /**
  * Rebuild parent/child/sibling pointers from parent_span_id fields.
  * Sets trace->root_span to the root (parent_span_id == 0).
+ *
+ * Every span is linked into the trace's ownership list (owner_next)
+ * so that trace_destroy() frees all of them, including orphan spans
+ * whose parent is missing and extra roots beyond the first.
  */
 static void rebuild_hierarchy(trace_t *trace, span_t **spans, int count) {
   trace->root_span = NULL;
 
-  /* Clear all hierarchy pointers */
+  /* Clear hierarchy pointers and take ownership of every span. */
   for (int i = 0; i < count; i++) {
     spans[i]->parent = NULL;
     spans[i]->first_child = NULL;
     spans[i]->next_sibling = NULL;
+    spans[i]->owner_next = trace->all_spans;
+    trace->all_spans = spans[i];
   }
 
   /* Link children to parents */
   for (int i = 0; i < count; i++) {
     if (spans[i]->parent_span_id == 0) {
-      /* Root span */
-      trace->root_span = spans[i];
+      /* Root span. If several spans claim to be root, keep the first
+       * and leave the rest owned-but-unlinked (they still get freed). */
+      if (trace->root_span == NULL) {
+        trace->root_span = spans[i];
+      }
     } else {
       span_t *parent = find_span_by_id(spans, count, spans[i]->parent_span_id);
       if (parent) {

@@ -48,9 +48,11 @@ int partial_trace_add_span(partial_trace_t *pt, const span_t *span,
   }
   memcpy(copy, span, sizeof(span_t));
 
-  /* Clear hierarchy pointers (not meaningful on collector side) */
+  /* Clear hierarchy/ownership pointers (not meaningful on collector
+   * side; the partial trace tracks its spans via next_sibling). */
   copy->parent = NULL;
   copy->first_child = NULL;
+  copy->owner_next = NULL;
 
   /* Prepend to linked list via next_sibling */
   copy->next_sibling = pt->spans;

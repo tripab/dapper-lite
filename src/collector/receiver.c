@@ -191,7 +191,9 @@ static void *receiver_thread_func(void *arg) {
 
 receiver_t *receiver_create(const collector_config_t *config,
                             trace_map_t *trace_map) {
-  if (!config || !trace_map || config->port <= 0 || config->port > 65535) {
+  /* port 0 is allowed: the OS assigns an ephemeral port, which the
+   * caller can read back via receiver_port(). */
+  if (!config || !trace_map || config->port < 0 || config->port > 65535) {
     return NULL;
   }
 
@@ -247,13 +249,23 @@ receiver_t *receiver_create(const collector_config_t *config,
     return NULL;
   }
 
+  /* Read back the actual bound port (resolves an ephemeral port 0). */
+  int bound_port = config->port;
+  struct sockaddr_in actual;
+  socklen_t actual_len = sizeof(actual);
+  if (getsockname(sockfd, (struct sockaddr *)&actual, &actual_len) == 0) {
+    bound_port = ntohs(actual.sin_port);
+  }
+
   r->sockfd = sockfd;
-  r->port = config->port;
+  r->port = bound_port;
   r->trace_map = trace_map;
   atomic_store(&r->running, false);
 
   return r;
 }
+
+int receiver_port(const receiver_t *r) { return r ? r->port : -1; }
 
 int receiver_start(receiver_t *r) {
   if (!r) {

@@ -240,8 +240,9 @@ $(TEST5_BIN): $(TEST5_OBJ) $(BASE_OBJS) $(WIRE_OBJS) $(COLLECTOR_LIB_OBJS) $(OBJ
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
-# Phase 6: analysis layer plus the collector storage helpers it reads.
-$(TEST6_BIN): $(TEST6_OBJ) $(BASE_OBJS) $(WIRE_OBJS) $(ANALYSIS_OBJS) $(COLLECTOR_LIB_OBJS) $(OBJ_DIR)/collector/main.test.o
+# Phase 6: analysis layer + collector storage helpers it reads, plus
+# the export pipeline for the end-to-end integration test.
+$(TEST6_BIN): $(TEST6_OBJ) $(BASE_OBJS) $(WIRE_OBJS) $(EXPORT_OBJS) $(ANALYSIS_OBJS) $(COLLECTOR_LIB_OBJS) $(OBJ_DIR)/collector/main.test.o
 	@echo "Linking $@"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 

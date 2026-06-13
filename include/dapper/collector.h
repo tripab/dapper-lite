@@ -346,4 +346,13 @@ void collector_destroy(collector_t *c);
  */
 void collector_get_stats(const collector_t *c, collector_stats_t *stats);
 
+/**
+ * Return the actual UDP port the collector is bound to.
+ *
+ * Useful when the collector was created with port 0 (ephemeral): the
+ * OS-assigned port is resolved at create time and returned here.
+ * Returns -1 if c is NULL.
+ */
+int collector_port(const collector_t *c);
+
 #endif /* COLLECTOR_H */

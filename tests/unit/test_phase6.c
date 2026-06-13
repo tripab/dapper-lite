@@ -771,6 +771,105 @@ static const char *test_json_export_null() {
 }
 
 /* ============================================================
+ * Full Pipeline Integration Test (D1)
+ *
+ * exporter -> UDP -> collector -> storage -> query, end to end on an
+ * ephemeral port and a unique temp file. Asserts trace ID, hierarchy,
+ * sampled state, annotations, and names survive the whole round trip.
+ * ============================================================ */
+
+static bool int_pred_two_spans(const collector_stats_t *s) {
+  return s->spans_processed >= 2;
+}
+
+static int wait_collector(collector_t *c, bool (*pred)(const collector_stats_t *),
+                          int timeout_ms) {
+  collector_stats_t st;
+  for (int waited = 0; waited < timeout_ms; waited += 10) {
+    collector_get_stats(c, &st);
+    if (pred(&st)) {
+      return 0;
+    }
+    usleep(10000);
+  }
+  collector_get_stats(c, &st);
+  return pred(&st) ? 0 : -1;
+}
+
+static const char *test_full_pipeline_integration() {
+  char storage_path[] = "/tmp/test_phase6_pipeline_XXXXXX";
+  int fd = mkstemp(storage_path);
+  mu_assert("mkstemp", fd >= 0);
+  close(fd);
+  unlink(storage_path); /* collector will recreate it */
+
+  /* Collector on an ephemeral loopback port. */
+  collector_config_t config = collector_default_config();
+  config.port = 0; /* OS-assigned */
+  config.timeout_sec = 1;
+  config.flush_interval_sec = 1;
+  config.storage_path = storage_path;
+
+  collector_t *c = collector_create(&config);
+  mu_assert("collector create", c != NULL);
+  mu_assert("collector start", collector_start(c) == 0);
+
+  int port = collector_port(c);
+  mu_assert("ephemeral port assigned", port > 0);
+
+  usleep(50000); /* let the receiver settle */
+
+  /* Real UDP exporter pointed at the collector. */
+  exporter_t *exp = exporter_create_udp("127.0.0.1", port);
+  mu_assert("exporter create", exp != NULL);
+  mu_assert("exporter start", exporter_start(exp) == 0);
+
+  /* A sampled trace: root + annotated child. */
+  const trace_id_t kTraceId = 0xC0FFEEULL;
+  trace_t *trace = trace_create_with_id(kTraceId);
+  trace->sampled = true;
+  span_t *root = span_create(trace, NULL, "frontend");
+  span_t *child = span_create(trace, root, "db_query");
+  span_annotate(child, "db.system", "postgresql");
+  span_finish(child);
+  span_finish(root);
+  exporter_submit(exp, root);
+  exporter_submit(exp, child);
+
+  /* Wait until both spans are ingested, then flush and stop. */
+  mu_assert("spans ingested", wait_collector(c, int_pred_two_spans, 3000) == 0);
+
+  exporter_destroy(exp);
+  collector_stop(c);
+  collector_destroy(c);
+
+  /* Query the storage and assert the full reconstruction. */
+  trace_t *loaded = query_trace_by_id(storage_path, kTraceId);
+  mu_assert("trace loaded from storage", loaded != NULL);
+  mu_assert_eq("trace id round-trips", (unsigned long)kTraceId,
+               (unsigned long)loaded->id);
+  mu_assert("sampled state round-trips", loaded->sampled == true);
+  mu_assert("root reconstructed", loaded->root_span != NULL);
+  mu_assert_str_eq("root name", "frontend", loaded->root_span->name);
+  mu_assert("root has one child", loaded->root_span->first_child != NULL);
+
+  span_t *lc = loaded->root_span->first_child;
+  mu_assert_str_eq("child name", "db_query", lc->name);
+  mu_assert_eq("child parent linkage",
+               (unsigned long)loaded->root_span->span_id,
+               (unsigned long)lc->parent_span_id);
+  mu_assert_eq("child annotation count", 1UL,
+               (unsigned long)lc->annotation_count);
+  mu_assert_str_eq("annotation key", "db.system", lc->annotations[0].key);
+  mu_assert_str_eq("annotation value", "postgresql", lc->annotations[0].value);
+
+  trace_destroy(loaded);
+  trace_destroy(trace);
+  unlink(storage_path);
+  return NULL;
+}
+
+/* ============================================================
  * Test Runner
  * ============================================================ */
 
@@ -812,6 +911,9 @@ static const char *all_tests() {
   mu_run_test(test_json_export_string);
   mu_run_test(test_json_export_file);
   mu_run_test(test_json_export_null);
+
+  /* Full pipeline integration */
+  mu_run_test(test_full_pipeline_integration);
 
   return NULL;
 }

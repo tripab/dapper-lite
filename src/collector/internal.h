@@ -28,6 +28,9 @@ int receiver_start(receiver_t *r);
 void receiver_stop(receiver_t *r);
 void receiver_destroy(receiver_t *r);
 
+/** Return the actual bound UDP port (resolves an ephemeral port 0). */
+int receiver_port(const receiver_t *r);
+
 /**
  * Fill the packet-level fields of stats (packets_received,
  * packets_invalid, packets_unauthorized, packets_rate_limited,

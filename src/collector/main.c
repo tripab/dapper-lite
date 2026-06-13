@@ -210,6 +210,13 @@ void collector_destroy(collector_t *c) {
   free(c);
 }
 
+int collector_port(const collector_t *c) {
+  if (!c) {
+    return -1;
+  }
+  return receiver_port(c->receiver);
+}
+
 void collector_get_stats(const collector_t *c, collector_stats_t *stats) {
   if (!c || !stats) {
     return;

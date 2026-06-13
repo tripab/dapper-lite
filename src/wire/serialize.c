@@ -69,6 +69,87 @@ static uint16_t read_u16(const uint8_t *buf, size_t off) {
 
 static uint8_t read_u8(const uint8_t *buf, size_t off) { return buf[off]; }
 
+/* ---- Serialization helpers ---- */
+
+/* Name length to encode: actual strlen, clamped to the field limit and
+ * to whatever space remains after the header. */
+static size_t serialize_name_len(const span_t *span, size_t bufsize) {
+  size_t name_len = strlen(span->name);
+  if (name_len > SPAN_NAME_MAX_LENGTH - 1) {
+    name_len = SPAN_NAME_MAX_LENGTH - 1;
+  }
+  if (SPAN_WIRE_HEADER_SIZE + name_len > bufsize) {
+    name_len = bufsize - SPAN_WIRE_HEADER_SIZE;
+  }
+  return name_len;
+}
+
+/* Number of annotations that fit in the buffer after the name. */
+static int serialize_annotation_count(const span_t *span, size_t bufsize,
+                                      size_t start_pos) {
+  size_t pos = start_pos;
+  int n = 0;
+  for (int i = 0; i < span->annotation_count; i++) {
+    size_t ann_size = 2 + strlen(span->annotations[i].key) + 2 +
+                      strlen(span->annotations[i].value);
+    if (pos + ann_size > bufsize) {
+      break; /* No more room — truncate remaining annotations */
+    }
+    pos += ann_size;
+    n++;
+  }
+  return n;
+}
+
+/* Write the 48-byte fixed header. Returns 0 on success, -1 on error. */
+static int serialize_header(uint8_t *buffer, size_t bufsize, const span_t *span,
+                            bool sampled, size_t name_len, int num_annotations) {
+  uint64_t start_ts = span->wall_start_us;
+  uint64_t duration_us = 0;
+  if (span->monotonic_end_ns > span->monotonic_start_ns) {
+    duration_us = (span->monotonic_end_ns - span->monotonic_start_ns) / 1000ULL;
+  }
+
+  if (write_u64(buffer, WIRE_OFF_TRACE_ID, bufsize, span->trace_id) < 0 ||
+      write_u64(buffer, WIRE_OFF_SPAN_ID, bufsize, span->span_id) < 0 ||
+      write_u64(buffer, WIRE_OFF_PARENT_SPAN_ID, bufsize,
+                span->parent_span_id) < 0 ||
+      write_u64(buffer, WIRE_OFF_START_TS, bufsize, start_ts) < 0 ||
+      write_u64(buffer, WIRE_OFF_DURATION_US, bufsize, duration_us) < 0 ||
+      write_u8(buffer, WIRE_OFF_SAMPLED, bufsize, sampled ? 1 : 0) < 0 ||
+      write_u8(buffer, WIRE_OFF_FLAGS, bufsize, 0) < 0 ||
+      write_u16(buffer, WIRE_OFF_NAME_LEN, bufsize, (uint16_t)name_len) < 0 ||
+      write_u16(buffer, WIRE_OFF_NUM_ANNOTATIONS, bufsize,
+                (uint16_t)num_annotations) < 0 ||
+      write_u16(buffer, WIRE_OFF_RESERVED, bufsize, 0) < 0) {
+    return -1;
+  }
+  return 0;
+}
+
+/* Write `num_annotations` key/value pairs starting at *offset. */
+static int serialize_annotations(uint8_t *buffer, size_t bufsize,
+                                 const span_t *span, int num_annotations,
+                                 size_t *offset) {
+  for (int i = 0; i < num_annotations; i++) {
+    size_t key_len = strlen(span->annotations[i].key);
+    size_t val_len = strlen(span->annotations[i].value);
+
+    if (write_u16(buffer, *offset, bufsize, (uint16_t)key_len) < 0)
+      return -1;
+    *offset += 2;
+    memcpy(buffer + *offset, span->annotations[i].key, key_len);
+    *offset += key_len;
+
+    if (write_u16(buffer, *offset, bufsize, (uint16_t)val_len) < 0)
+      return -1;
+    *offset += 2;
+    memcpy(buffer + *offset, span->annotations[i].value, val_len);
+    *offset += val_len;
+  }
+  return 0;
+}
+
 /* ---- Public API ---- */
 
 int span_serialize(uint8_t *buffer, size_t bufsize, const span_t *span,
@@ -77,89 +158,69 @@ int span_serialize(uint8_t *buffer, size_t bufsize, const span_t *span,
     return -1;
   }
 
-  /* Compute derived fields */
-  uint64_t start_ts = span->wall_start_us;
-  uint64_t duration_us = 0;
-  if (span->monotonic_end_ns > span->monotonic_start_ns) {
-    duration_us = (span->monotonic_end_ns - span->monotonic_start_ns) / 1000ULL;
+  size_t name_len = serialize_name_len(span, bufsize);
+  int num_annotations = serialize_annotation_count(
+      span, bufsize, SPAN_WIRE_HEADER_SIZE + name_len);
+
+  if (serialize_header(buffer, bufsize, span, sampled, name_len,
+                       num_annotations) < 0) {
+    return -1;
   }
 
-  /* Determine name length (actual strlen, not buffer size) */
-  size_t name_len = strlen(span->name);
-  if (name_len > SPAN_NAME_MAX_LENGTH - 1) {
-    name_len = SPAN_NAME_MAX_LENGTH - 1;
-  }
-
-  /* Check if name fits in buffer after header */
-  if (SPAN_WIRE_HEADER_SIZE + name_len > bufsize) {
-    /* Truncate name to fit */
-    name_len = bufsize - SPAN_WIRE_HEADER_SIZE;
-  }
-
-  /* Count how many annotations we can fit */
-  size_t pos = SPAN_WIRE_HEADER_SIZE + name_len;
-  int num_annotations = 0;
-
-  for (int i = 0; i < span->annotation_count; i++) {
-    size_t key_len = strlen(span->annotations[i].key);
-    size_t val_len = strlen(span->annotations[i].value);
-    size_t ann_size = 2 + key_len + 2 + val_len;
-
-    if (pos + ann_size > bufsize) {
-      break; /* No more room — truncate remaining annotations */
-    }
-    pos += ann_size;
-    num_annotations++;
-  }
-
-  /* Write header */
-  if (write_u64(buffer, WIRE_OFF_TRACE_ID, bufsize, span->trace_id) < 0)
-    return -1;
-  if (write_u64(buffer, WIRE_OFF_SPAN_ID, bufsize, span->span_id) < 0)
-    return -1;
-  if (write_u64(buffer, WIRE_OFF_PARENT_SPAN_ID, bufsize,
-                span->parent_span_id) < 0)
-    return -1;
-  if (write_u64(buffer, WIRE_OFF_START_TS, bufsize, start_ts) < 0)
-    return -1;
-  if (write_u64(buffer, WIRE_OFF_DURATION_US, bufsize, duration_us) < 0)
-    return -1;
-  if (write_u8(buffer, WIRE_OFF_SAMPLED, bufsize, sampled ? 1 : 0) < 0)
-    return -1;
-  if (write_u8(buffer, WIRE_OFF_FLAGS, bufsize, 0) < 0)
-    return -1;
-  if (write_u16(buffer, WIRE_OFF_NAME_LEN, bufsize, (uint16_t)name_len) < 0)
-    return -1;
-  if (write_u16(buffer, WIRE_OFF_NUM_ANNOTATIONS, bufsize,
-                (uint16_t)num_annotations) < 0)
-    return -1;
-  if (write_u16(buffer, WIRE_OFF_RESERVED, bufsize, 0) < 0)
-    return -1;
-
-  /* Write span name */
   size_t offset = SPAN_WIRE_HEADER_SIZE;
   memcpy(buffer + offset, span->name, name_len);
   offset += name_len;
 
-  /* Write annotations */
-  for (int i = 0; i < num_annotations; i++) {
-    size_t key_len = strlen(span->annotations[i].key);
-    size_t val_len = strlen(span->annotations[i].value);
-
-    if (write_u16(buffer, offset, bufsize, (uint16_t)key_len) < 0)
-      return -1;
-    offset += 2;
-    memcpy(buffer + offset, span->annotations[i].key, key_len);
-    offset += key_len;
-
-    if (write_u16(buffer, offset, bufsize, (uint16_t)val_len) < 0)
-      return -1;
-    offset += 2;
-    memcpy(buffer + offset, span->annotations[i].value, val_len);
-    offset += val_len;
+  if (serialize_annotations(buffer, bufsize, span, num_annotations, &offset) <
+      0) {
+    return -1;
   }
 
   return (int)offset;
+}
+
+/* ---- Deserialization helpers ---- */
+
+/* Copy one length-prefixed string field from buffer[*offset], advancing
+ * *offset by the on-wire length. The destination is truncated to
+ * dest_size-1 and null-terminated. Returns 0 on success, -1 if the
+ * field runs past the buffer. */
+static int read_string_field(const uint8_t *buffer, size_t bufsize,
+                             size_t *offset, char *dest, size_t dest_size) {
+  if (*offset + 2 > bufsize) {
+    return -1;
+  }
+  uint16_t len = read_u16(buffer, *offset);
+  *offset += 2;
+  if (*offset + len > bufsize) {
+    return -1;
+  }
+  size_t copy = len;
+  if (copy >= dest_size) {
+    copy = dest_size - 1;
+  }
+  memcpy(dest, buffer + *offset, copy);
+  dest[copy] = '\0';
+  *offset += len;
+  return 0;
+}
+
+/* Parse up to MAX_ANNOTATIONS key/value pairs starting at *offset. */
+static int deserialize_annotations(const uint8_t *buffer, size_t bufsize,
+                                   span_t *span, uint16_t num_annotations,
+                                   size_t *offset) {
+  for (int i = 0; i < num_annotations && i < MAX_ANNOTATIONS; i++) {
+    if (read_string_field(buffer, bufsize, offset, span->annotations[i].key,
+                          ANNOTATION_KEY_MAX_LENGTH) < 0) {
+      return -1;
+    }
+    if (read_string_field(buffer, bufsize, offset, span->annotations[i].value,
+                          ANNOTATION_VALUE_MAX_LENGTH) < 0) {
+      return -1;
+    }
+    span->annotation_count++;
+  }
+  return 0;
 }
 
 int span_deserialize(const uint8_t *buffer, size_t bufsize, span_t *span,
@@ -212,38 +273,9 @@ int span_deserialize(const uint8_t *buffer, size_t bufsize, span_t *span,
   offset += name_len;
 
   /* Read annotations */
-  for (int i = 0; i < num_annotations && i < MAX_ANNOTATIONS; i++) {
-    if (offset + 2 > bufsize)
-      return -1;
-    uint16_t key_len = read_u16(buffer, offset);
-    offset += 2;
-
-    if (offset + key_len > bufsize)
-      return -1;
-    size_t klen = key_len;
-    if (klen >= ANNOTATION_KEY_MAX_LENGTH) {
-      klen = ANNOTATION_KEY_MAX_LENGTH - 1;
-    }
-    memcpy(span->annotations[i].key, buffer + offset, klen);
-    span->annotations[i].key[klen] = '\0';
-    offset += key_len;
-
-    if (offset + 2 > bufsize)
-      return -1;
-    uint16_t val_len = read_u16(buffer, offset);
-    offset += 2;
-
-    if (offset + val_len > bufsize)
-      return -1;
-    size_t vlen = val_len;
-    if (vlen >= ANNOTATION_VALUE_MAX_LENGTH) {
-      vlen = ANNOTATION_VALUE_MAX_LENGTH - 1;
-    }
-    memcpy(span->annotations[i].value, buffer + offset, vlen);
-    span->annotations[i].value[vlen] = '\0';
-    offset += val_len;
-
-    span->annotation_count++;
+  if (deserialize_annotations(buffer, bufsize, span, num_annotations,
+                              &offset) < 0) {
+    return -1;
   }
 
   /* Hierarchy/ownership pointers are not part of wire format

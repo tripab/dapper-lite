@@ -516,24 +516,30 @@ static const char *test_exporter_backpressure() {
   span_t *s = span_create(trace, NULL, "bp");
   span_finish(s);
 
-  for (int i = 0; i < 5000; i++) {
+  const uint64_t submitted = 5000;
+  for (uint64_t i = 0; i < submitted; i++) {
     exporter_submit(exp, s);
   }
 
+  /* API-visible backpressure invariants (no hard-coded ring capacity):
+   * every submission is counted, and with the consumer stopped the
+   * buffer must overflow so some spans are dropped. */
   exporter_stats_t stats;
   exporter_get_stats(exp, &stats);
-  mu_assert_eq("all submitted", 5000, (unsigned long)stats.spans_submitted);
-  mu_assert("some dropped", stats.spans_dropped > 0);
-  mu_assert_eq("dropped count correct", 905,
-               (unsigned long)stats.spans_dropped);
+  mu_assert_eq("all submitted", submitted,
+               (unsigned long)stats.spans_submitted);
+  mu_assert("some dropped under backpressure", stats.spans_dropped > 0);
+  uint64_t buffered = submitted - stats.spans_dropped;
 
-  /* Start and drain */
+  /* Start the consumer and drain; everything not dropped exports and
+   * no further drops occur. */
   mu_assert("start should succeed", exporter_start(exp) == 0);
-  usleep(500000);
+  mu_assert_eq("all buffered exported", buffered,
+               (unsigned long)wait_for_export(exp, buffered, 2000));
 
   exporter_get_stats(exp, &stats);
-  mu_assert_eq("exported matches buffered", 4095,
-               (unsigned long)stats.spans_exported);
+  mu_assert_eq("exported + dropped accounts for all submitted", submitted,
+               (unsigned long)(stats.spans_exported + stats.spans_dropped));
 
   exporter_destroy(exp);
   unlink(path);

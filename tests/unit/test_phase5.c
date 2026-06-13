@@ -126,19 +126,16 @@ static const char *test_decode_zero_span_id() {
  * Partial Trace Tests
  * ============================================================ */
 
-static const char *test_partial_trace_create_destroy() {
-  partial_trace_t *pt = partial_trace_create(42);
-  mu_assert("create should succeed", pt != NULL);
-  mu_assert_eq("trace_id", 42UL, (unsigned long)pt->trace_id);
-  mu_assert_eq("span_count", 0UL, (unsigned long)pt->span_count);
-  mu_assert("no root initially", pt->has_root == false);
-  mu_assert("spans is NULL", pt->spans == NULL);
-  partial_trace_destroy(pt);
-  return NULL;
-}
-
 static const char *test_partial_trace_add_spans() {
   partial_trace_t *pt = partial_trace_create(100);
+
+  /* E2: a freshly created partial trace starts empty (default state
+   * checked here as part of the create -> use -> destroy lifecycle). */
+  mu_assert("create should succeed", pt != NULL);
+  mu_assert_eq("initial trace_id", 100UL, (unsigned long)pt->trace_id);
+  mu_assert_eq("initial span_count 0", 0UL, (unsigned long)pt->span_count);
+  mu_assert("no root initially", pt->has_root == false);
+  mu_assert("spans initially NULL", pt->spans == NULL);
 
   /* Add a root span */
   span_t root;
@@ -166,7 +163,10 @@ static const char *test_partial_trace_add_spans() {
   mu_assert("add child should succeed", rc == 0);
   mu_assert_eq("span_count after child", 2UL, (unsigned long)pt->span_count);
 
-  /* Verify the list is newest-first */
+  /* White-box (E5): the collector keeps its list newest-first. This is
+   * an intentional internal-state check via collector/internal.h; the
+   * public guarantee (all spans persisted) is covered by the storage
+   * round-trip and the phase 6 integration test. */
   mu_assert_eq("head is child", 2UL, (unsigned long)pt->spans->span.span_id);
   mu_assert_eq("second is root", 1UL,
                (unsigned long)pt->spans->next->span.span_id);
@@ -199,16 +199,13 @@ static const char *test_partial_trace_span_is_copied() {
  * Trace Map Tests
  * ============================================================ */
 
-static const char *test_trace_map_create_destroy() {
-  trace_map_t *tm = trace_map_create(16);
-  mu_assert("create should succeed", tm != NULL);
-  mu_assert_eq("count initially 0", 0UL, (unsigned long)tm->count);
-  trace_map_destroy(tm);
-  return NULL;
-}
-
 static const char *test_trace_map_insert_and_find() {
   trace_map_t *tm = trace_map_create(16);
+
+  /* E2: a new map is empty (default state folded into this lifecycle
+   * test rather than a standalone constructor smoke test). */
+  mu_assert("create should succeed", tm != NULL);
+  mu_assert_eq("count initially 0", 0UL, (unsigned long)tm->count);
 
   span_t span;
   memset(&span, 0, sizeof(span));
@@ -846,12 +843,10 @@ static const char *all_tests() {
   mu_run_test(test_decode_zero_span_id);
 
   /* Partial trace */
-  mu_run_test(test_partial_trace_create_destroy);
   mu_run_test(test_partial_trace_add_spans);
   mu_run_test(test_partial_trace_span_is_copied);
 
   /* Trace map */
-  mu_run_test(test_trace_map_create_destroy);
   mu_run_test(test_trace_map_insert_and_find);
   mu_run_test(test_trace_map_flush_timeout);
   mu_run_test(test_trace_map_flush_respects_timeout);

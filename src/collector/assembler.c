@@ -41,22 +41,23 @@ int partial_trace_add_span(partial_trace_t *pt, const span_t *span,
     return -1;
   }
 
-  /* Allocate a copy of the span */
-  span_t *copy = calloc(1, sizeof(span_t));
-  if (!copy) {
+  /* Allocate a collector list node holding a copy of the span. */
+  collected_span_t *node = calloc(1, sizeof(collected_span_t));
+  if (!node) {
     return -1;
   }
-  memcpy(copy, span, sizeof(span_t));
+  memcpy(&node->span, span, sizeof(span_t));
 
-  /* Clear hierarchy/ownership pointers (not meaningful on collector
-   * side; the partial trace tracks its spans via next_sibling). */
-  copy->parent = NULL;
-  copy->first_child = NULL;
-  copy->owner_next = NULL;
+  /* Hierarchy/ownership pointers are not meaningful on the collector
+   * side; the partial trace tracks its spans via node->next. */
+  node->span.parent = NULL;
+  node->span.first_child = NULL;
+  node->span.next_sibling = NULL;
+  node->span.owner_next = NULL;
 
-  /* Prepend to linked list via next_sibling */
-  copy->next_sibling = pt->spans;
-  pt->spans = copy;
+  /* Prepend to the collector-owned list. */
+  node->next = pt->spans;
+  pt->spans = node;
   pt->span_count++;
 
   /* Track root span */
@@ -80,10 +81,10 @@ void partial_trace_destroy(partial_trace_t *pt) {
     return;
   }
 
-  /* Free all spans in the linked list */
-  span_t *s = pt->spans;
+  /* Free all collector list nodes. */
+  collected_span_t *s = pt->spans;
   while (s) {
-    span_t *next = s->next_sibling;
+    collected_span_t *next = s->next;
     free(s);
     s = next;
   }

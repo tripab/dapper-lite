@@ -79,10 +79,11 @@ int storage_write_trace(trace_storage_t *ts, const partial_trace_t *pt) {
   }
 
   uint32_t span_count = 0;
-  span_t *s = pt->spans;
+  collected_span_t *s = pt->spans;
   while (s) {
     uint8_t wire_buf[SPAN_WIRE_MAX_SIZE];
-    int wire_len = span_serialize(wire_buf, sizeof(wire_buf), s, pt->sampled);
+    int wire_len =
+        span_serialize(wire_buf, sizeof(wire_buf), &s->span, pt->sampled);
     if (wire_len < 0) {
       free(buf); /* abort: nothing written to disk */
       return -1;
@@ -109,7 +110,7 @@ int storage_write_trace(trace_storage_t *ts, const partial_trace_t *pt) {
     used += (size_t)wire_len;
     span_count++;
 
-    s = s->next_sibling;
+    s = s->next;
   }
 
   /* A zero-span record would be rejected as corrupt on read and would

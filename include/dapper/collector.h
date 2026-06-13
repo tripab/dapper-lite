@@ -68,6 +68,18 @@ int collector_decode_span(const uint8_t *data, size_t len, span_t *span,
  * ============================================================ */
 
 /**
+ * A collector-owned list node wrapping one received span.
+ *
+ * The collector keeps its own list of spans rather than reusing the
+ * span's hierarchy pointers (next_sibling), so the in-process
+ * hierarchy fields keep a single meaning.
+ */
+typedef struct collected_span {
+  span_t span;
+  struct collected_span *next;
+} collected_span_t;
+
+/**
  * A partially-assembled trace collecting spans as they arrive.
  * Stored in the trace_map hash table, keyed by trace_id.
  */
@@ -75,7 +87,7 @@ typedef struct partial_trace {
   trace_id_t trace_id;
 
   /* Linked list of received spans (newest first) */
-  span_t *spans;
+  collected_span_t *spans;
   int span_count;
 
   /* Sampling decision from first span received */

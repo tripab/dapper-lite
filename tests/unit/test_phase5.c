@@ -166,9 +166,9 @@ static const char *test_partial_trace_add_spans() {
   mu_assert_eq("span_count after child", 2UL, (unsigned long)pt->span_count);
 
   /* Verify the list is newest-first */
-  mu_assert_eq("head is child", 2UL, (unsigned long)pt->spans->span_id);
+  mu_assert_eq("head is child", 2UL, (unsigned long)pt->spans->span.span_id);
   mu_assert_eq("second is root", 1UL,
-               (unsigned long)pt->spans->next_sibling->span_id);
+               (unsigned long)pt->spans->next->span.span_id);
 
   partial_trace_destroy(pt);
   return NULL;
@@ -188,7 +188,7 @@ static const char *test_partial_trace_span_is_copied() {
   /* Modify original — should not affect the copy */
   snprintf(original.name, sizeof(original.name), "modified");
 
-  mu_assert_str_eq("copy is independent", "original", pt->spans->name);
+  mu_assert_str_eq("copy is independent", "original", pt->spans->span.name);
 
   partial_trace_destroy(pt);
   return NULL;

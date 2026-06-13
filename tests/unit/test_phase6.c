@@ -732,6 +732,77 @@ static const char *test_aggregate_null_args() {
   return NULL;
 }
 
+/* D3: aggregation must compute exact count/min/max/mean/p50/p99 for a
+ * known set of durations grouped by span name. */
+static const char *test_aggregate_exact_stats() {
+  /* One root "svc" with four children "leaf" of 10/20/30/40 ms. */
+  const char *path = "/tmp/test_phase6_agg_exact.bin";
+  unlink(path);
+  trace_storage_t *ts = storage_open(path);
+  mu_assert("open storage", ts != NULL);
+  partial_trace_t *pt = partial_trace_create(900);
+
+  span_t root;
+  memset(&root, 0, sizeof(root));
+  root.trace_id = 900;
+  root.span_id = 1;
+  root.parent_span_id = 0;
+  root.monotonic_end_ns = 100000000ULL; /* 100ms */
+  snprintf(root.name, sizeof(root.name), "svc");
+  partial_trace_add_span(pt, &root, true);
+
+  const uint64_t ms[4] = {10, 20, 30, 40};
+  for (int i = 0; i < 4; i++) {
+    span_t leaf;
+    memset(&leaf, 0, sizeof(leaf));
+    leaf.trace_id = 900;
+    leaf.span_id = (span_id_t)(2 + i);
+    leaf.parent_span_id = 1;
+    leaf.monotonic_end_ns = ms[i] * 1000000ULL;
+    snprintf(leaf.name, sizeof(leaf.name), "leaf");
+    partial_trace_add_span(pt, &leaf, true);
+  }
+  mu_assert("write trace", storage_write_trace(ts, pt) == 0);
+  storage_flush(ts);
+  storage_close(ts);
+  partial_trace_destroy(pt);
+
+  int trace_count;
+  trace_t **traces = query_load_all(path, &trace_count);
+  mu_assert("load traces", traces != NULL);
+
+  int stat_count;
+  service_stats_t *stats =
+      aggregate_by_service(traces, trace_count, &stat_count);
+  mu_assert("aggregate ok", stats != NULL);
+  mu_assert_eq("two groups", 2UL, (unsigned long)stat_count);
+
+  const service_stats_t *leaf = NULL;
+  for (int i = 0; i < stat_count; i++) {
+    if (strcmp(stats[i].name, "leaf") == 0) {
+      leaf = &stats[i];
+    }
+  }
+  mu_assert("leaf group present", leaf != NULL);
+  mu_assert_eq("leaf count is 4", 4UL, (unsigned long)leaf->count);
+  mu_assert("leaf min 10ms", leaf->min_latency_us == 10000.0);
+  mu_assert("leaf max 40ms", leaf->max_latency_us == 40000.0);
+  mu_assert("leaf mean 25ms", leaf->mean_latency_us == 25000.0);
+  /* Linearly-interpolated percentiles over sorted [10,20,30,40] ms:
+   * p50 rank=1.5 -> 25000; p99 rank=2.97 -> 30000 + 0.97*10000. */
+  mu_assert("leaf p50 interpolated", leaf->p50_latency_us == 25000.0);
+  mu_assert("leaf p99 interpolated",
+            leaf->p99_latency_us > 39600.0 && leaf->p99_latency_us < 39800.0);
+
+  free(stats);
+  for (int i = 0; i < trace_count; i++) {
+    trace_destroy(traces[i]);
+  }
+  free(traces);
+  unlink(path);
+  return NULL;
+}
+
 /* ============================================================
  * JSON Export Tests
  * ============================================================ */
@@ -763,6 +834,29 @@ static const char *test_json_export_string() {
   free(json);
   trace_destroy(t);
   unlink(path);
+  return NULL;
+}
+
+/* D3: the JSON writer must escape quotes, backslashes, and control
+ * characters in names and annotation values. */
+static const char *test_json_escapes_special_chars() {
+  trace_t *t = trace_create_with_id(77);
+  t->sampled = true;
+  span_t *root = span_create(t, NULL, "weird\"name");
+  span_annotate(root, "k\\path", "a\"b\nc\td");
+  span_finish(root);
+
+  char *json = export_trace_json_string(t);
+  mu_assert("json export ok", json != NULL);
+
+  mu_assert("escaped quote in name", strstr(json, "weird\\\"name") != NULL);
+  mu_assert("escaped backslash in key", strstr(json, "k\\\\path") != NULL);
+  /* The full value "a\"b\nc\td" must appear with every special char
+   * escaped (real quote/newline/tab never inside the value). */
+  mu_assert("value fully escaped", strstr(json, "a\\\"b\\nc\\td") != NULL);
+
+  free(json);
+  trace_destroy(t);
   return NULL;
 }
 
@@ -934,10 +1028,12 @@ static const char *all_tests() {
 
   /* Aggregation */
   mu_run_test(test_aggregate_single_trace);
+  mu_run_test(test_aggregate_exact_stats);
   mu_run_test(test_aggregate_null_args);
 
   /* JSON export */
   mu_run_test(test_json_export_string);
+  mu_run_test(test_json_escapes_special_chars);
   mu_run_test(test_json_export_file);
   mu_run_test(test_json_export_null);
 

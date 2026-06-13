@@ -6,6 +6,7 @@
  */
 
 #include "dapper/analysis.h"
+#include "span_walk.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -84,29 +85,30 @@ static void write_span_json(FILE *fp, const span_t *span, const char *indent) {
   fprintf(fp, "\n%s}", indent);
 }
 
-/**
- * Recursively collect all spans in DFS order into a flat array.
- */
-static void collect_spans_dfs(const span_t *span, const span_t ***arr,
-                              int *count, int *capacity) {
-  if (!span) {
-    return;
-  }
+/* Context for collecting spans into a growable flat array. */
+typedef struct {
+  const span_t **arr;
+  int count;
+  int capacity;
+} span_array_t;
 
-  if (*count >= *capacity) {
-    *capacity *= 2;
+/**
+ * Append one span to the flat array (preorder visitor). On allocation
+ * failure the span is skipped; the partial array stays consistent.
+ */
+static void collect_span_into_array(const span_t *span, void *vctx) {
+  span_array_t *a = (span_array_t *)vctx;
+  if (a->count >= a->capacity) {
+    int new_cap = a->capacity * 2;
     const span_t **new_arr =
-        realloc(*arr, (size_t)*capacity * sizeof(span_t *));
+        realloc(a->arr, (size_t)new_cap * sizeof(span_t *));
     if (!new_arr) {
       return;
     }
-    *arr = new_arr;
+    a->arr = new_arr;
+    a->capacity = new_cap;
   }
-  (*arr)[(*count)++] = span;
-
-  for (span_t *child = span->first_child; child; child = child->next_sibling) {
-    collect_spans_dfs(child, arr, count, capacity);
-  }
+  a->arr[a->count++] = span;
 }
 
 /* ---- Public API ---- */
@@ -129,19 +131,17 @@ void export_trace_json(const trace_t *trace, FILE *output) {
   fprintf(output, "  \"duration_us\": %llu,\n",
           (unsigned long long)trace_duration_us);
 
-  /* Collect all spans */
-  int span_count = 0;
-  int span_capacity = 32;
-  const span_t **all_spans = calloc((size_t)span_capacity, sizeof(span_t *));
-  if (all_spans && trace->root_span) {
-    collect_spans_dfs(trace->root_span, &all_spans, &span_count,
-                      &span_capacity);
+  /* Collect all spans in preorder */
+  span_array_t spans = {NULL, 0, 32};
+  spans.arr = calloc((size_t)spans.capacity, sizeof(span_t *));
+  if (spans.arr && trace->root_span) {
+    span_tree_walk_preorder(trace->root_span, collect_span_into_array, &spans);
   }
 
   fprintf(output, "  \"spans\": [\n");
-  for (int i = 0; i < span_count; i++) {
-    write_span_json(output, all_spans[i], "    ");
-    if (i < span_count - 1) {
+  for (int i = 0; i < spans.count; i++) {
+    write_span_json(output, spans.arr[i], "    ");
+    if (i < spans.count - 1) {
       fputc(',', output);
     }
     fputc('\n', output);
@@ -164,7 +164,7 @@ void export_trace_json(const trace_t *trace, FILE *output) {
   fprintf(output, "}\n");
 
   free(cpath);
-  free(all_spans);
+  free(spans.arr);
 }
 
 char *export_trace_json_string(const trace_t *trace) {

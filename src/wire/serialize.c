@@ -23,37 +23,17 @@
  *       [value_len] value   (UTF-8)
  */
 
+#include "dapper/byteorder.h"
 #include "dapper/wire.h"
 #include <arpa/inet.h>
 #include <string.h>
-
-/* ---- Byte order helpers ---- */
-
-static uint64_t host_to_be64(uint64_t value) {
-  static const int num = 42;
-  if (*(const char *)&num == 42) {
-    /* Little-endian: swap */
-    return ((uint64_t)htonl((uint32_t)(value & 0xFFFFFFFF)) << 32) |
-           (uint64_t)htonl((uint32_t)(value >> 32));
-  }
-  return value;
-}
-
-static uint64_t be64_to_host(uint64_t value) {
-  static const int num = 42;
-  if (*(const char *)&num == 42) {
-    return ((uint64_t)ntohl((uint32_t)(value & 0xFFFFFFFF)) << 32) |
-           (uint64_t)ntohl((uint32_t)(value >> 32));
-  }
-  return value;
-}
 
 /* ---- Write helpers ---- */
 
 static int write_u64(uint8_t *buf, size_t off, size_t bufsize, uint64_t val) {
   if (off + 8 > bufsize)
     return -1;
-  uint64_t net = host_to_be64(val);
+  uint64_t net = dapper_hton64(val);
   memcpy(buf + off, &net, 8);
   return 0;
 }
@@ -78,7 +58,7 @@ static int write_u8(uint8_t *buf, size_t off, size_t bufsize, uint8_t val) {
 static uint64_t read_u64(const uint8_t *buf, size_t off) {
   uint64_t net;
   memcpy(&net, buf + off, 8);
-  return be64_to_host(net);
+  return dapper_ntoh64(net);
 }
 
 static uint16_t read_u16(const uint8_t *buf, size_t off) {

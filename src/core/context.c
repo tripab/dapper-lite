@@ -2,37 +2,11 @@
  * context.c - Trace context serialization/deserialization
  */
 
+#include "dapper/byteorder.h"
 #include "dapper/context.h"
 #include "dapper/span.h"
 #include "dapper/trace.h"
-#include <arpa/inet.h> /* For htobe64/be64toh */
 #include <string.h>
-
-/**
- * Convert 64-bit value to network byte order (big-endian)
- */
-static uint64_t htobe64(uint64_t value) {
-  /* Check if system is already big-endian */
-  static const int num = 42;
-  if (*(char *)&num == 42) {
-    /* Little-endian system, need to swap */
-    return ((uint64_t)htonl(value & 0xFFFFFFFF) << 32) | htonl(value >> 32);
-  }
-  /* Big-endian system, no swap needed */
-  return value;
-}
-
-/**
- * Convert 64-bit value from network byte order to host byte order
- */
-static uint64_t be64toh(uint64_t value) {
-  /* Same logic as htobe64 (conversion is symmetric) */
-  static const int num = 42;
-  if (*(char *)&num == 42) {
-    return ((uint64_t)ntohl(value & 0xFFFFFFFF) << 32) | ntohl(value >> 32);
-  }
-  return value;
-}
 
 int context_inject(const span_t *span, uint8_t *buffer, size_t bufsize) {
   if (!span || !buffer || bufsize < TRACE_CONTEXT_WIRE_SIZE) {
@@ -40,8 +14,8 @@ int context_inject(const span_t *span, uint8_t *buffer, size_t bufsize) {
   }
 
   /* Serialize in network byte order (big-endian) */
-  uint64_t trace_id_net = htobe64(span->trace_id);
-  uint64_t span_id_net = htobe64(span->span_id);
+  uint64_t trace_id_net = dapper_hton64(span->trace_id);
+  uint64_t span_id_net = dapper_hton64(span->span_id);
 
   memcpy(buffer, &trace_id_net, sizeof(uint64_t));
   memcpy(buffer + 8, &span_id_net, sizeof(uint64_t));
@@ -64,8 +38,8 @@ int context_extract(trace_context_t *ctx, const uint8_t *buffer,
   memcpy(&trace_id_net, buffer, sizeof(uint64_t));
   memcpy(&span_id_net, buffer + 8, sizeof(uint64_t));
 
-  ctx->trace_id = be64toh(trace_id_net);
-  ctx->span_id = be64toh(span_id_net);
+  ctx->trace_id = dapper_ntoh64(trace_id_net);
+  ctx->span_id = dapper_ntoh64(span_id_net);
   ctx->sampled = (buffer[16] & TRACE_CONTEXT_FLAG_SAMPLED) != 0;
 
   return 0;

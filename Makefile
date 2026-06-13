@@ -448,7 +448,7 @@ $(OBJ_DIR)/core/trace.o: src/core/trace.c include/dapper/trace.h include/dapper/
 $(OBJ_DIR)/core/span.o: src/core/span.c include/dapper/span.h include/dapper/types.h include/dapper/trace.h
 $(OBJ_DIR)/core/clock.o: src/core/clock.c
 $(OBJ_DIR)/core/thread_local.o: src/core/thread_local.c include/dapper/span.h include/dapper/types.h
-$(OBJ_DIR)/core/context.o: src/core/context.c include/dapper/context.h include/dapper/span.h include/dapper/trace.h include/dapper/types.h
+$(OBJ_DIR)/core/context.o: src/core/context.c include/dapper/context.h include/dapper/byteorder.h include/dapper/span.h include/dapper/trace.h include/dapper/types.h
 
 $(EXAMPLE1_OBJ): $(EXAMPLE1_SRC) include/dapper/trace.h include/dapper/span.h include/dapper/types.h
 $(EXAMPLE2_OBJ): $(EXAMPLE2_SRC) include/dapper/trace.h include/dapper/span.h include/dapper/types.h
@@ -459,7 +459,7 @@ $(TEST1_OBJ): $(TEST1_SRC) tests/unit/minunit.h include/dapper/trace.h include/d
 $(TEST2_OBJ): $(TEST2_SRC) tests/unit/minunit.h include/dapper/trace.h include/dapper/span.h include/dapper/context.h include/dapper/types.h
 $(TEST4_OBJ): $(TEST4_SRC) tests/unit/minunit.h include/dapper/exporter.h include/dapper/trace.h include/dapper/span.h include/dapper/types.h
 
-$(OBJ_DIR)/wire/serialize.o: src/wire/serialize.c include/dapper/wire.h include/dapper/types.h
+$(OBJ_DIR)/wire/serialize.o: src/wire/serialize.c include/dapper/wire.h include/dapper/byteorder.h include/dapper/types.h
 $(OBJ_DIR)/export/ring_buffer.o: src/export/ring_buffer.c src/export/export_internal.h include/dapper/exporter.h include/dapper/wire.h include/dapper/types.h include/dapper/span.h
 $(OBJ_DIR)/export/file_sink.o: src/export/file_sink.c src/export/export_internal.h include/dapper/exporter.h
 $(OBJ_DIR)/export/udp_sink.o: src/export/udp_sink.c src/export/export_internal.h include/dapper/exporter.h
@@ -468,15 +468,15 @@ $(OBJ_DIR)/export/exporter_thread.o: src/export/exporter_thread.c src/export/exp
 $(OBJ_DIR)/collector/protocol.o: src/collector/protocol.c include/dapper/collector.h include/dapper/wire.h include/dapper/types.h
 $(OBJ_DIR)/collector/receiver.o: src/collector/receiver.c src/collector/internal.h include/dapper/collector.h include/dapper/wire.h include/dapper/types.h
 $(OBJ_DIR)/collector/assembler.o: src/collector/assembler.c src/collector/internal.h include/dapper/collector.h include/dapper/wire.h include/dapper/types.h
-$(OBJ_DIR)/collector/storage.o: src/collector/storage.c src/collector/internal.h include/dapper/collector.h include/dapper/wire.h include/dapper/types.h
+$(OBJ_DIR)/collector/storage.o: src/collector/storage.c src/collector/internal.h include/dapper/collector.h include/dapper/byteorder.h include/dapper/wire.h include/dapper/types.h
 $(OBJ_DIR)/collector/main.o: src/collector/main.c src/collector/internal.h include/dapper/collector.h include/dapper/types.h
 
 $(TEST5_OBJ): $(TEST5_SRC) tests/unit/minunit.h include/dapper/collector.h include/dapper/exporter.h include/dapper/trace.h include/dapper/span.h include/dapper/types.h
 
-$(OBJ_DIR)/analysis/query.o: src/analysis/query.c include/dapper/analysis.h include/dapper/wire.h include/dapper/trace.h include/dapper/types.h
+$(OBJ_DIR)/analysis/query.o: src/analysis/query.c include/dapper/analysis.h include/dapper/byteorder.h include/dapper/wire.h include/dapper/trace.h include/dapper/types.h
 $(OBJ_DIR)/analysis/critical_path.o: src/analysis/critical_path.c include/dapper/analysis.h include/dapper/span.h include/dapper/types.h
-$(OBJ_DIR)/analysis/aggregation.o: src/analysis/aggregation.c include/dapper/analysis.h include/dapper/types.h
-$(OBJ_DIR)/analysis/export_json.o: src/analysis/export_json.c include/dapper/analysis.h include/dapper/types.h
+$(OBJ_DIR)/analysis/aggregation.o: src/analysis/aggregation.c src/analysis/span_walk.h include/dapper/analysis.h include/dapper/types.h
+$(OBJ_DIR)/analysis/export_json.o: src/analysis/export_json.c src/analysis/span_walk.h include/dapper/analysis.h include/dapper/types.h
 
 $(TEST6_OBJ): $(TEST6_SRC) tests/unit/minunit.h include/dapper/analysis.h include/dapper/collector.h include/dapper/exporter.h include/dapper/trace.h include/dapper/span.h include/dapper/types.h
 

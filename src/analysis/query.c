@@ -14,23 +14,13 @@
  */
 
 #include "dapper/analysis.h"
+#include "dapper/byteorder.h"
 #include "dapper/trace.h"
 #include "dapper/wire.h"
 #include <arpa/inet.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-/* ---- Byte order helpers ---- */
-
-static uint64_t be64_to_host(uint64_t value) {
-  static const int num = 42;
-  if (*(const char *)&num == 42) {
-    return ((uint64_t)ntohl((uint32_t)(value & 0xFFFFFFFF)) << 32) |
-           (uint64_t)ntohl((uint32_t)(value >> 32));
-  }
-  return value;
-}
 
 /* ---- Hierarchy reconstruction ---- */
 
@@ -114,7 +104,7 @@ static trace_t *read_one_trace(FILE *fp, trace_read_status_t *status) {
     *status = feof(fp) ? TRACE_READ_EOF : TRACE_READ_IO_ERROR;
     return NULL;
   }
-  trace_id_t trace_id = be64_to_host(tid_be);
+  trace_id_t trace_id = dapper_ntoh64(tid_be);
 
   /* Read num_spans (4 bytes BE) */
   uint32_t nspans_be;

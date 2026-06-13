@@ -13,22 +13,12 @@
  */
 
 #include "internal.h"
+#include "dapper/byteorder.h"
 #include "dapper/wire.h"
 #include <arpa/inet.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-/* ---- Byte order helpers ---- */
-
-static uint64_t host_to_be64(uint64_t value) {
-  static const int num = 42;
-  if (*(const char *)&num == 42) {
-    return ((uint64_t)htonl((uint32_t)(value & 0xFFFFFFFF)) << 32) |
-           (uint64_t)htonl((uint32_t)(value >> 32));
-  }
-  return value;
-}
 
 /* ---- Storage implementation ---- */
 
@@ -121,7 +111,7 @@ int storage_write_trace(trace_storage_t *ts, const partial_trace_t *pt) {
   }
 
   /* Fill in the header now that the count is known. */
-  uint64_t tid_be = host_to_be64(pt->trace_id);
+  uint64_t tid_be = dapper_hton64(pt->trace_id);
   memcpy(buf, &tid_be, 8);
   uint32_t nspans_be = htonl(span_count);
   memcpy(buf + 8, &nspans_be, 4);

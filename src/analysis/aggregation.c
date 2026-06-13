@@ -6,6 +6,7 @@
  */
 
 #include "dapper/analysis.h"
+#include "span_walk.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -67,25 +68,22 @@ static int add_sample(group_t *g, double latency_us) {
   return 0;
 }
 
-/**
- * Walk all spans in a trace (DFS).
- */
-static void collect_spans(const span_t *span, group_t *groups,
-                          int *num_groups) {
-  if (!span) {
-    return;
-  }
+/* Context for the per-span aggregation visitor. */
+typedef struct {
+  group_t *groups;
+  int *num_groups;
+} collect_ctx_t;
 
+/**
+ * Visit one span: record its duration into the group for its name.
+ */
+static void collect_span_visit(const span_t *span, void *vctx) {
+  collect_ctx_t *ctx = (collect_ctx_t *)vctx;
   uint64_t duration_us =
       (span->monotonic_end_ns - span->monotonic_start_ns) / 1000ULL;
-  int idx = find_or_create_group(groups, num_groups, span->name);
+  int idx = find_or_create_group(ctx->groups, ctx->num_groups, span->name);
   if (idx >= 0) {
-    add_sample(&groups[idx], (double)duration_us);
-  }
-
-  /* Recurse into children */
-  for (span_t *child = span->first_child; child; child = child->next_sibling) {
-    collect_spans(child, groups, num_groups);
+    add_sample(&ctx->groups[idx], (double)duration_us);
   }
 }
 
@@ -129,9 +127,10 @@ service_stats_t *aggregate_by_service(trace_t **traces, int trace_count,
   memset(groups, 0, sizeof(groups));
 
   /* Collect latency samples from all traces */
+  collect_ctx_t ctx = {groups, &num_groups};
   for (int i = 0; i < trace_count; i++) {
     if (traces[i] && traces[i]->root_span) {
-      collect_spans(traces[i]->root_span, groups, &num_groups);
+      span_tree_walk_preorder(traces[i]->root_span, collect_span_visit, &ctx);
     }
   }
 

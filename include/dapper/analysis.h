@@ -52,8 +52,9 @@ typedef enum {
  *          Returns NULL on error (out_count set to 0).
  *
  * If the log is corrupt or truncated, the valid prefix of traces is
- * returned and a diagnostic is written to stderr. Use
- * query_load_all_status() to observe the terminal read status.
+ * returned and a diagnostic is written to stderr (this variant has no
+ * other way to report it). Use query_load_all_status() to observe the
+ * terminal read status programmatically and without the warning.
  */
 trace_t **query_load_all(const char *storage_path, int *out_count);
 
@@ -63,7 +64,8 @@ trace_t **query_load_all(const char *storage_path, int *out_count);
  * out_status (may be NULL) is set to TRACE_READ_EOF for a clean read,
  * or TRACE_READ_CORRUPT / TRACE_READ_IO_ERROR when the log could not
  * be fully parsed. The valid prefix of traces is returned in either
- * case.
+ * case. When out_status is non-NULL, no stderr diagnostic is emitted —
+ * the caller is expected to inspect the status.
  */
 trace_t **query_load_all_status(const char *storage_path, int *out_count,
                                 trace_read_status_t *out_status);

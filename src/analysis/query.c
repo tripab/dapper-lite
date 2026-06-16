@@ -243,17 +243,19 @@ trace_t **query_load_all_status(const char *storage_path, int *out_count,
   fclose(fp);
   *out_count = count;
 
-  /* Surface corruption instead of silently treating it as EOF. */
-  if (status == TRACE_READ_CORRUPT || status == TRACE_READ_IO_ERROR) {
+  /* Surface corruption instead of silently treating it as EOF. The
+   * stderr diagnostic is only for callers that cannot observe the
+   * status themselves: when out_status is provided the caller is
+   * expected to inspect it, so stay quiet (avoids noisy output when a
+   * caller is deliberately probing for corruption). */
+  if (out_status) {
+    *out_status = status;
+  } else if (status == TRACE_READ_CORRUPT || status == TRACE_READ_IO_ERROR) {
     fprintf(stderr, "query: storage log '%s' %s after %d valid trace(s)\n",
             storage_path,
             status == TRACE_READ_CORRUPT ? "is corrupt/truncated"
                                          : "hit an I/O error",
             count);
-  }
-
-  if (out_status) {
-    *out_status = status;
   }
 
   if (count == 0) {
